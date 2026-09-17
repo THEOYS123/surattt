@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { Category, Template, InvitationData, Order } from '../types';
 import { db } from '../services/storage';
+import { customerAuth } from '../services/customerAuth';
 import { SlugAvailability } from '../components/SlugAvailability';
 import { InvitationView } from './InvitationView';
 import { MediaGalleryManager } from '../components/MediaGalleryManager';
@@ -58,10 +59,11 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
   const [templateFilterCategory, setTemplateFilterCategory] = useState<string>('all');
   const [templateSearchQuery, setTemplateSearchQuery] = useState<string>('');
 
-  // Customer Contact for Order
-  const [customerName, setCustomerName] = useState('');
-  const [email, setEmail] = useState('');
-  const [whatsapp, setWhatsapp] = useState('');
+  // Customer Contact for Order (Auto fill if logged in)
+  const currentUser = useMemo(() => customerAuth.getCurrentUser(), []);
+  const [customerName, setCustomerName] = useState(() => currentUser?.name || currentUser?.username || '');
+  const [email, setEmail] = useState(() => currentUser?.email || '');
+  const [whatsapp, setWhatsapp] = useState(() => currentUser?.phone || '');
 
   // Slug
   const [slug, setSlug] = useState('');
@@ -360,6 +362,7 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
 
     const newOrder: Order = {
       id: `ORD-2026-${Math.floor(10000 + Math.random() * 90000)}`,
+      userId: currentUser?.id,
       customerName: customerName.trim() || 'Tamu Undangan',
       email: email.trim(),
       whatsapp: whatsapp.trim(),
@@ -379,6 +382,16 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
     };
 
     db.saveOrder(newOrder);
+
+    if (currentUser) {
+      customerAuth.logActivity(
+        currentUser.id,
+        currentUser.email,
+        'Membuat Pesanan Undangan',
+        `Membuat pesanan baru ${newOrder.id} untuk undangan digital /${newOrder.slug} (Rp${basePrice.toLocaleString('id-ID')}).`,
+        'ShoppingBag'
+      );
+    }
     onComplete(newOrder);
   };
 

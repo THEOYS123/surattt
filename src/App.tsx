@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from './services/storage';
 import { authService } from './services/auth';
-import { Order, SiteSettings } from './types';
+import { customerAuth } from './services/customerAuth';
+import { Order, SiteSettings, UserAccount } from './types';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { LandingPage } from './views/LandingPage';
@@ -11,6 +12,8 @@ import { OrderStatusPage } from './views/OrderStatusPage';
 import { InvitationView } from './views/InvitationView';
 import { AdminPanel } from './views/AdminPanel';
 import { AdminLogin } from './views/AdminLogin';
+import { CustomerDashboard } from './views/CustomerDashboard';
+import { CustomerAuthModal } from './components/CustomerAuthModal';
 import { AlertCircle, ArrowLeft, Home, Sparkles } from 'lucide-react';
 
 export default function App() {
@@ -32,12 +35,24 @@ export default function App() {
   // Admin auth state
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(authService.isAuthenticated());
 
+  // Customer auth state
+  const [customerUser, setCustomerUser] = useState<UserAccount | null>(() => customerAuth.getCurrentUser());
+  const [authModal, setAuthModal] = useState<{
+    isOpen: boolean;
+    tab: 'login' | 'register';
+    message?: string;
+  }>({
+    isOpen: false,
+    tab: 'login'
+  });
+
   // Refresh data whenever route or navigation occurs
   const refreshData = () => {
     setSettings(db.getSettings());
     setCategories(db.getCategories());
     setTemplates(db.getTemplates());
     setIsAdminAuthenticated(authService.isAuthenticated());
+    setCustomerUser(customerAuth.getCurrentUser());
   };
 
   // Listen to browser forward/back buttons
@@ -68,6 +83,12 @@ export default function App() {
       navigate('/create');
     } else if (view === 'order-status' && param) {
       navigate(`/status/${param}`);
+    } else if (view === 'my-account' || view === 'account' || view === 'dashboard') {
+      navigate('/my-account');
+    } else if (view === 'login') {
+      setAuthModal({ isOpen: true, tab: 'login' });
+    } else if (view === 'register') {
+      setAuthModal({ isOpen: true, tab: 'register' });
     } else if (view === 'admin' || view === 'admin-login') {
       setIsAdminAuthenticated(authService.isAuthenticated());
       navigate('/admin');
@@ -76,13 +97,24 @@ export default function App() {
     }
   };
 
-  // Check if current route is an invitation slug (anything other than root, /admin, /create, /checkout, /status)
+  const openAuth = (tab: 'login' | 'register' = 'login', message?: string) => {
+    setAuthModal({ isOpen: true, tab, message });
+  };
+
+  // Check if current route is a special system route
   const isSpecialRoute = [
     '/',
     '/create',
     '/checkout',
     '/admin',
-    '/admin/login'
+    '/admin/login',
+    '/my-account',
+    '/account',
+    '/dashboard',
+    '/login',
+    '/register',
+    '/masuk',
+    '/daftar'
   ].includes(currentPath) || currentPath.startsWith('/status/');
 
   // Route: Admin
@@ -110,6 +142,119 @@ export default function App() {
     );
   }
 
+  // Route: Customer Auth Direct URLs (/login, /register, /masuk, /daftar)
+  if (['/login', '/register', '/masuk', '/daftar'].includes(currentPath)) {
+    const defaultTab = currentPath.includes('register') || currentPath.includes('daftar') ? 'register' : 'login';
+    return (
+      <div className="min-h-screen flex flex-col justify-between bg-stone-100">
+        <Navbar
+          settings={settings}
+          currentView="landing"
+          onNavigate={handleNavigateView}
+          onNavigateHome={() => navigate('/')}
+          onStartCreate={() => {
+            setWizardPreselect({});
+            navigate('/create');
+          }}
+          onOpenAuth={(tab) => openAuth(tab)}
+        />
+        <div className="flex-1 flex items-center justify-center p-4">
+          <CustomerAuthModal
+            isOpen={true}
+            initialTab={defaultTab}
+            onClose={() => navigate('/')}
+            onSuccess={(user) => {
+              setCustomerUser(user);
+              navigate('/my-account');
+            }}
+          />
+        </div>
+        <Footer
+          settings={settings}
+          categories={categories}
+          onNavigate={handleNavigateView}
+          onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); navigate('/create'); }}
+        />
+      </div>
+    );
+  }
+
+  // Route: Customer Account / Dashboard (/my-account, /account, /dashboard)
+  if (['/my-account', '/account', '/dashboard'].includes(currentPath)) {
+    if (!customerUser) {
+      return (
+        <div className="min-h-screen flex flex-col justify-between bg-stone-100">
+          <Navbar
+            settings={settings}
+            currentView="landing"
+            onNavigate={handleNavigateView}
+            onNavigateHome={() => navigate('/')}
+            onStartCreate={() => {
+              setWizardPreselect({});
+              navigate('/create');
+            }}
+            onOpenAuth={(tab) => openAuth(tab)}
+          />
+          <CustomerAuthModal
+            isOpen={true}
+            initialTab="login"
+            messageNotice="Silakan masuk atau daftar akun terlebih dahulu untuk melihat dashboard dan riwayat pesanan Anda."
+            onClose={() => navigate('/')}
+            onSuccess={(user) => {
+              setCustomerUser(user);
+              navigate('/my-account');
+            }}
+          />
+          <Footer
+            settings={settings}
+            categories={categories}
+            onNavigate={handleNavigateView}
+            onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); navigate('/create'); }}
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div className="min-h-screen flex flex-col justify-between bg-stone-100">
+        <Navbar
+          settings={settings}
+          currentView="my-account"
+          onNavigate={handleNavigateView}
+          onNavigateHome={() => navigate('/')}
+          onStartCreate={() => {
+            setWizardPreselect({});
+            navigate('/create');
+          }}
+          onOpenAuth={(tab) => openAuth(tab)}
+        />
+        <CustomerDashboard
+          user={customerUser}
+          settings={settings}
+          onLogout={() => {
+            customerAuth.logout();
+            setCustomerUser(null);
+            navigate('/');
+          }}
+          onNavigateHome={() => navigate('/')}
+          onStartCreate={() => {
+            setWizardPreselect({});
+            navigate('/create');
+          }}
+          onViewOrder={(orderId) => navigate(`/status/${orderId}`)}
+          onViewInvitation={(slug) => navigate(`/${slug}`)}
+          onUpdateUser={(updated) => setCustomerUser(updated)}
+        />
+        <Footer
+          settings={settings}
+          categories={categories}
+          onNavigate={handleNavigateView}
+          onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); navigate('/create'); }}
+        />
+      </div>
+    );
+  }
+
   // Route: Order Status (/status/:orderId or ?order=ID)
   const orderIdFromUrl = currentPath.startsWith('/status/')
     ? currentPath.replace('/status/', '')
@@ -129,6 +274,7 @@ export default function App() {
               setWizardPreselect({});
               navigate('/create');
             }}
+            onOpenAuth={(tab) => openAuth(tab)}
           />
           <OrderStatusPage
             order={foundOrder}
@@ -144,6 +290,17 @@ export default function App() {
             categories={categories}
             onNavigate={handleNavigateView}
             onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); navigate('/create'); }}
+          />
+
+          <CustomerAuthModal
+            isOpen={authModal.isOpen}
+            initialTab={authModal.tab}
+            messageNotice={authModal.message}
+            onClose={() => setAuthModal(prev => ({ ...prev, isOpen: false }))}
+            onSuccess={(user) => {
+              setCustomerUser(user);
+              setAuthModal(prev => ({ ...prev, isOpen: false }));
+            }}
           />
         </div>
       );
@@ -163,6 +320,7 @@ export default function App() {
             setWizardPreselect({});
             navigate('/create');
           }}
+          onOpenAuth={(tab) => openAuth(tab)}
         />
         <CreateWizard
           initialCategoryId={wizardPreselect.categoryId}
@@ -178,6 +336,17 @@ export default function App() {
           categories={categories}
           onNavigate={handleNavigateView}
           onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); navigate('/create'); }}
+        />
+
+        <CustomerAuthModal
+          isOpen={authModal.isOpen}
+          initialTab={authModal.tab}
+          messageNotice={authModal.message}
+          onClose={() => setAuthModal(prev => ({ ...prev, isOpen: false }))}
+          onSuccess={(user) => {
+            setCustomerUser(user);
+            setAuthModal(prev => ({ ...prev, isOpen: false }));
+          }}
         />
       </div>
     );
@@ -196,6 +365,7 @@ export default function App() {
             setWizardPreselect({});
             navigate('/create');
           }}
+          onOpenAuth={(tab) => openAuth(tab)}
         />
         <CheckoutPage
           order={activeOrder}
@@ -210,6 +380,17 @@ export default function App() {
           categories={categories}
           onNavigate={handleNavigateView}
           onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); navigate('/create'); }}
+        />
+
+        <CustomerAuthModal
+          isOpen={authModal.isOpen}
+          initialTab={authModal.tab}
+          messageNotice={authModal.message}
+          onClose={() => setAuthModal(prev => ({ ...prev, isOpen: false }))}
+          onSuccess={(user) => {
+            setCustomerUser(user);
+            setAuthModal(prev => ({ ...prev, isOpen: false }));
+          }}
         />
       </div>
     );
@@ -302,6 +483,7 @@ export default function App() {
           setWizardPreselect({});
           navigate('/create');
         }}
+        onOpenAuth={(tab) => openAuth(tab)}
       />
       
       <LandingPage
@@ -323,6 +505,18 @@ export default function App() {
         onStartCreate={(catId) => {
           setWizardPreselect({ categoryId: catId });
           navigate('/create');
+        }}
+      />
+
+      <CustomerAuthModal
+        isOpen={authModal.isOpen}
+        initialTab={authModal.tab}
+        messageNotice={authModal.message}
+        onClose={() => setAuthModal(prev => ({ ...prev, isOpen: false }))}
+        onSuccess={(user) => {
+          setCustomerUser(user);
+          setAuthModal(prev => ({ ...prev, isOpen: false }));
+          navigate('/my-account');
         }}
       />
     </div>

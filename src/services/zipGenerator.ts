@@ -984,6 +984,8 @@ Tim SURAT Digital Indonesia
   saveAs(content, filename);
 }
 
+export const generateStandaloneWebsiteZip = generateInvitationZip;
+
 function escapeHtml(str: string): string {
   if (!str) return '';
   return str

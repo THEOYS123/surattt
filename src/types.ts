@@ -21,6 +21,29 @@ export interface Customer {
   createdAt: string;
 }
 
+export interface UserAccount {
+  id: string;
+  username: string; // nama pengguna
+  name: string;
+  phone: string; // nomor WhatsApp / HP
+  email: string;
+  passwordHash: string;
+  referralSource?: string; // Dari mana Anda tahu website ini (opsional)
+  avatarUrl?: string;
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
+export interface UserActivityLog {
+  id: string;
+  userId: string;
+  userEmail: string;
+  action: string;
+  details: string;
+  timestamp: string;
+  icon?: string;
+}
+
 export interface Category {
   id: string;
   name: string;
@@ -71,6 +94,7 @@ export interface MediaItem {
 
 export interface Order {
   id: string;
+  userId?: string; // Linked customer user account ID
   customerName: string;
   email: string;
   whatsapp: string;

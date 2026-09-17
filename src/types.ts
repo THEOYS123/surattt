@@ -438,3 +438,20 @@ export interface SecurityScanResult {
   }[];
 }
 
+// Auto Debug & System Log Types
+export type DebugLogLevel = 'error' | 'warn' | 'info' | 'action';
+
+export interface SystemDebugLog {
+  id: string;
+  level: DebugLogLevel;
+  category: 'CHECKOUT' | 'AUTH' | 'DATABASE' | 'UI_BUTTON' | 'SYSTEM' | 'NETWORK';
+  message: string;
+  source: string; // e.g. 'CreateWizard:handleCreateCheckout' or 'window.onerror'
+  stack?: string;
+  details?: Record<string, unknown> | string;
+  path: string;
+  userEmail?: string;
+  userId?: string;
+  timestamp: string;
+}
+

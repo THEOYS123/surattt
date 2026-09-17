@@ -872,7 +872,7 @@ export const db = {
       bannedBy: banned.bannedBy || 'Administrator SURAT'
     };
 
-    const idx = list.findIndex(b => (b.identifier || '').trim().toLowerCase() === cleanId);
+    const idx = list.findIndex(b => (b.identifier || '').trim().toLowerCase() === cleanId || (b.id && b.id === cleanBanned.id));
     if (idx >= 0) {
       list[idx] = cleanBanned;
     } else {
@@ -900,9 +900,9 @@ export const db = {
       localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(convos));
     }
 
-    // Also mark customer account if registered
+    // Also mark customer accounts and active session if registered
     try {
-      const usersRaw = localStorage.getItem('surat_db_user_accounts');
+      const usersRaw = localStorage.getItem('surat_customer_users');
       if (usersRaw) {
         const users = JSON.parse(usersRaw);
         if (Array.isArray(users)) {
@@ -920,11 +920,30 @@ export const db = {
             }
           });
           if (userTouched) {
-            localStorage.setItem('surat_db_user_accounts', JSON.stringify(users));
+            localStorage.setItem('surat_customer_users', JSON.stringify(users));
           }
         }
       }
-    } catch {}
+
+      const sessionRaw = localStorage.getItem('surat_customer_session');
+      if (sessionRaw) {
+        const session = JSON.parse(sessionRaw);
+        if (session && session.user) {
+          const sEmail = (session.user.email || '').trim().toLowerCase();
+          const sName = (session.user.username || '').trim().toLowerCase();
+          const sPhone = (session.user.phone || '').trim().toLowerCase();
+          const sId = (session.user.id || '').trim().toLowerCase();
+          if (sEmail === cleanId || sName === cleanId || sPhone === cleanId || sId === cleanId) {
+            session.user.isBanned = true;
+            session.user.bannedReason = cleanBanned.reason;
+            session.user.bannedAt = cleanBanned.bannedAt;
+            localStorage.setItem('surat_customer_session', JSON.stringify(session));
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Error marking banned status on user accounts:', err);
+    }
 
     // Security Audit Log
     securityService.logSecurityEvent({
@@ -936,17 +955,38 @@ export const db = {
 
     window.dispatchEvent(new CustomEvent('surat:banned-updated'));
     window.dispatchEvent(new CustomEvent('surat:chat-updated'));
+    window.dispatchEvent(new CustomEvent('surat:auth-changed'));
   },
 
-  unbanUser(identifier: string): void {
+  unbanUser(identifier: string, banId?: string): void {
     const rawId = (identifier || '').trim();
-    if (!rawId) return;
+    const rawBanId = (banId || '').trim();
+    if (!rawId && !rawBanId) return;
     const cleanId = rawId.toLowerCase();
+    const cleanBanId = rawBanId.toLowerCase();
 
-    const list = this.getBannedUsers().filter(
-      b => (b.identifier || '').trim().toLowerCase() !== cleanId &&
-           (b.id || '').trim().toLowerCase() !== cleanId
+    // Collect all identifiers of the banned record before removing
+    const prevList = this.getBannedUsers();
+    const targetBan = prevList.find(b => 
+      (cleanId && (b.identifier || '').trim().toLowerCase() === cleanId) ||
+      (cleanBanId && (b.id || '').trim().toLowerCase() === cleanBanId)
     );
+
+    const relatedIdentifiers = new Set<string>();
+    if (cleanId) relatedIdentifiers.add(cleanId);
+    if (cleanBanId) relatedIdentifiers.add(cleanBanId);
+    if (targetBan) {
+      if (targetBan.identifier) relatedIdentifiers.add(targetBan.identifier.trim().toLowerCase());
+      if (targetBan.id) relatedIdentifiers.add(targetBan.id.trim().toLowerCase());
+      if (targetBan.name) relatedIdentifiers.add(targetBan.name.trim().toLowerCase());
+      if (targetBan.userName) relatedIdentifiers.add(targetBan.userName.trim().toLowerCase());
+    }
+
+    const list = prevList.filter(b => {
+      const bId = (b.identifier || '').trim().toLowerCase();
+      const bRecordId = (b.id || '').trim().toLowerCase();
+      return !relatedIdentifiers.has(bId) && !relatedIdentifiers.has(bRecordId);
+    });
     localStorage.setItem(STORAGE_KEYS.BANNED_USERS, JSON.stringify(list));
 
     // Unmark all matching conversations
@@ -958,7 +998,13 @@ export const db = {
       const cName = (c.userName || '').trim().toLowerCase();
       const cId = (c.id || '').trim().toLowerCase();
 
-      if (cEmail === cleanId || cUserId === cleanId || cName === cleanId || cId === cleanId) {
+      if (
+        relatedIdentifiers.has(cEmail) ||
+        relatedIdentifiers.has(cUserId) ||
+        relatedIdentifiers.has(cName) ||
+        relatedIdentifiers.has(cId) ||
+        (cleanId && (cEmail === cleanId || cUserId === cleanId || cName === cleanId))
+      ) {
         c.isBanned = false;
         c.bannedReason = undefined;
         c.bannedAt = undefined;
@@ -969,9 +1015,9 @@ export const db = {
       localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(convos));
     }
 
-    // Also unmark customer account if registered
+    // Also unmark customer accounts and active session
     try {
-      const usersRaw = localStorage.getItem('surat_db_user_accounts');
+      const usersRaw = localStorage.getItem('surat_customer_users');
       if (usersRaw) {
         const users = JSON.parse(usersRaw);
         if (Array.isArray(users)) {
@@ -981,7 +1027,13 @@ export const db = {
             const uName = (u.username || '').trim().toLowerCase();
             const uPhone = (u.phone || '').trim().toLowerCase();
             const uId = (u.id || '').trim().toLowerCase();
-            if (uEmail === cleanId || uName === cleanId || uPhone === cleanId || uId === cleanId) {
+            if (
+              relatedIdentifiers.has(uEmail) ||
+              relatedIdentifiers.has(uName) ||
+              relatedIdentifiers.has(uPhone) ||
+              relatedIdentifiers.has(uId) ||
+              (cleanId && (uEmail === cleanId || uName === cleanId || uPhone === cleanId))
+            ) {
               u.isBanned = false;
               u.bannedReason = undefined;
               u.bannedAt = undefined;
@@ -989,11 +1041,36 @@ export const db = {
             }
           });
           if (userTouched) {
-            localStorage.setItem('surat_db_user_accounts', JSON.stringify(users));
+            localStorage.setItem('surat_customer_users', JSON.stringify(users));
           }
         }
       }
-    } catch {}
+
+      const sessionRaw = localStorage.getItem('surat_customer_session');
+      if (sessionRaw) {
+        const session = JSON.parse(sessionRaw);
+        if (session && session.user) {
+          const sEmail = (session.user.email || '').trim().toLowerCase();
+          const sName = (session.user.username || '').trim().toLowerCase();
+          const sPhone = (session.user.phone || '').trim().toLowerCase();
+          const sId = (session.user.id || '').trim().toLowerCase();
+          if (
+            relatedIdentifiers.has(sEmail) ||
+            relatedIdentifiers.has(sName) ||
+            relatedIdentifiers.has(sPhone) ||
+            relatedIdentifiers.has(sId) ||
+            (cleanId && (sEmail === cleanId || sName === cleanId || sPhone === cleanId))
+          ) {
+            session.user.isBanned = false;
+            session.user.bannedReason = undefined;
+            session.user.bannedAt = undefined;
+            localStorage.setItem('surat_customer_session', JSON.stringify(session));
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Error unbanning user accounts:', err);
+    }
 
     // Security Audit Log
     securityService.logSecurityEvent({
@@ -1005,6 +1082,7 @@ export const db = {
 
     window.dispatchEvent(new CustomEvent('surat:banned-updated'));
     window.dispatchEvent(new CustomEvent('surat:chat-updated'));
+    window.dispatchEvent(new CustomEvent('surat:auth-changed'));
   },
 
   isUserBanned(identifier?: string, additionalIdentifiers?: (string | undefined)[]): { isBanned: boolean; reason?: string; bannedAt?: string } {
@@ -1012,39 +1090,28 @@ export const db = {
       return { isBanned: false };
     }
 
+    // BANNED_USERS is the sole authoritative source of truth for banning
     const list = this.getBannedUsers();
-    if (list.length === 0) return { isBanned: false };
+    if (!list || list.length === 0) return { isBanned: false };
 
     const candidates: string[] = [];
-    if (identifier) candidates.push(identifier.trim().toLowerCase());
+    if (identifier && identifier.trim()) candidates.push(identifier.trim().toLowerCase());
     if (additionalIdentifiers) {
       additionalIdentifiers.forEach(id => {
         if (id && id.trim()) candidates.push(id.trim().toLowerCase());
       });
     }
 
-    // 1. Direct match in banned list
+    // Direct match against active banned list
     for (const cand of candidates) {
       const found = list.find(b => {
         const bId = (b.identifier || '').trim().toLowerCase();
+        const bRecordId = (b.id || '').trim().toLowerCase();
         const bName = (b.name || b.userName || '').trim().toLowerCase();
-        return bId === cand || (bName && bName === cand);
+        return bId === cand || bRecordId === cand || (bName && bName === cand);
       });
       if (found) {
         return { isBanned: true, reason: found.reason, bannedAt: found.bannedAt };
-      }
-    }
-
-    // 2. Check in conversations to see if marked banned
-    const convos = this.getConversations();
-    for (const cand of candidates) {
-      const convoMatch = convos.find(c => {
-        const cEmail = (c.userEmail || '').trim().toLowerCase();
-        const cUserId = (c.userId || '').trim().toLowerCase();
-        return (cEmail === cand || cUserId === cand) && c.isBanned;
-      });
-      if (convoMatch && convoMatch.isBanned) {
-        return { isBanned: true, reason: convoMatch.bannedReason || 'Akun dalam daftar pemblokiran.', bannedAt: convoMatch.bannedAt };
       }
     }
 

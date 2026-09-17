@@ -253,7 +253,7 @@ export const AdminChatManager: React.FC<AdminChatManagerProps> = ({ onViewOrder 
 
     if (!matchesSearch) return false;
 
-    const isBanned = db.isUserBanned(c.userEmail, [c.userId, c.userName]).isBanned || c.isBanned;
+    const isBanned = db.isUserBanned(c.userEmail, [c.userId, c.userName]).isBanned;
     if (filterTab === 'unread') return (c.unreadAdminCount || 0) > 0;
     if (filterTab === 'nudge') return (c.nudgeCount || 0) > 0;
     if (filterTab === 'banned') return isBanned;
@@ -445,7 +445,7 @@ export const AdminChatManager: React.FC<AdminChatManagerProps> = ({ onViewOrder 
                 const isSelected = convo.id === selectedConvoId;
                 const unread = convo.unreadAdminCount || 0;
                 const hasNudge = (convo.nudgeCount || 0) > 0;
-                const banned = db.isUserBanned(convo.userEmail, [convo.userId, convo.userName]).isBanned || convo.isBanned;
+                const banned = db.isUserBanned(convo.userEmail, [convo.userId, convo.userName]).isBanned;
 
                 return (
                   <div

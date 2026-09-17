@@ -69,8 +69,8 @@ export const AdminBannedUsersManager: React.FC = () => {
     loadData();
   };
 
-  const handleUnban = (identifier: string) => {
-    db.unbanUser(identifier);
+  const handleUnban = (identifier: string, banId?: string) => {
+    db.unbanUser(identifier, banId);
     setActionNotice(`Pemblokiran "${identifier}" telah dibuka. Akses kembali aktif.`);
     setTimeout(() => setActionNotice(null), 4000);
     loadData();
@@ -279,7 +279,7 @@ export const AdminBannedUsersManager: React.FC = () => {
                     <td className="p-3.5 text-right">
                       <button
                         type="button"
-                        onClick={() => handleUnban(ban.identifier)}
+                        onClick={() => handleUnban(ban.identifier, ban.id)}
                         className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold flex items-center gap-1 ml-auto transition cursor-pointer"
                         title="Buka blokir pengguna ini"
                       >

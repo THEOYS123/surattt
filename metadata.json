@@ -1,0 +1,6 @@
+{
+  "name": "SURAT - Platform Undangan Digital",
+  "description": "Platform SaaS pembuatan dan publikasi surat/undangan digital profesional dengan dynamic routing, QRIS payment, dan ekspor ZIP mandiri.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

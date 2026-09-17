@@ -55,6 +55,27 @@ export default function App() {
     setCustomerUser(customerAuth.getCurrentUser());
   };
 
+  // Sync customer authentication state across all browser actions
+  useEffect(() => {
+    const handleAuthEvent = (e: Event) => {
+      const customEvt = e as CustomEvent<UserAccount | null>;
+      setCustomerUser(customEvt.detail !== undefined ? customEvt.detail : customerAuth.getCurrentUser());
+    };
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'surat_customer_session' || e.key === 'surat_customer_users') {
+        setCustomerUser(customerAuth.getCurrentUser());
+      }
+    };
+
+    window.addEventListener('surat:auth-changed', handleAuthEvent);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener('surat:auth-changed', handleAuthEvent);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
   // Listen to browser forward/back buttons
   useEffect(() => {
     const handlePopState = () => {
@@ -150,6 +171,12 @@ export default function App() {
         <Navbar
           settings={settings}
           currentView="landing"
+          currentUser={customerUser}
+          onLogoutCustomer={() => {
+            customerAuth.logout();
+            setCustomerUser(null);
+            navigate('/');
+          }}
           onNavigate={handleNavigateView}
           onNavigateHome={() => navigate('/')}
           onStartCreate={() => {
@@ -187,6 +214,12 @@ export default function App() {
           <Navbar
             settings={settings}
             currentView="landing"
+            currentUser={customerUser}
+            onLogoutCustomer={() => {
+              customerAuth.logout();
+              setCustomerUser(null);
+              navigate('/');
+            }}
             onNavigate={handleNavigateView}
             onNavigateHome={() => navigate('/')}
             onStartCreate={() => {
@@ -220,6 +253,12 @@ export default function App() {
         <Navbar
           settings={settings}
           currentView="my-account"
+          currentUser={customerUser}
+          onLogoutCustomer={() => {
+            customerAuth.logout();
+            setCustomerUser(null);
+            navigate('/');
+          }}
           onNavigate={handleNavigateView}
           onNavigateHome={() => navigate('/')}
           onStartCreate={() => {
@@ -268,6 +307,12 @@ export default function App() {
           <Navbar
             settings={settings}
             currentView="order-status"
+            currentUser={customerUser}
+            onLogoutCustomer={() => {
+              customerAuth.logout();
+              setCustomerUser(null);
+              navigate('/');
+            }}
             onNavigate={handleNavigateView}
             onNavigateHome={() => navigate('/')}
             onStartCreate={() => {
@@ -314,6 +359,12 @@ export default function App() {
         <Navbar
           settings={settings}
           currentView="create"
+          currentUser={customerUser}
+          onLogoutCustomer={() => {
+            customerAuth.logout();
+            setCustomerUser(null);
+            navigate('/');
+          }}
           onNavigate={handleNavigateView}
           onNavigateHome={() => navigate('/')}
           onStartCreate={() => {
@@ -325,6 +376,7 @@ export default function App() {
         <CreateWizard
           initialCategoryId={wizardPreselect.categoryId}
           initialTemplateId={wizardPreselect.templateId}
+          onOpenAuth={(tab) => openAuth(tab)}
           onComplete={(newOrder) => {
             setActiveOrder(newOrder);
             navigate('/checkout');
@@ -359,6 +411,12 @@ export default function App() {
         <Navbar
           settings={settings}
           currentView="checkout"
+          currentUser={customerUser}
+          onLogoutCustomer={() => {
+            customerAuth.logout();
+            setCustomerUser(null);
+            navigate('/');
+          }}
           onNavigate={handleNavigateView}
           onNavigateHome={() => navigate('/')}
           onStartCreate={() => {
@@ -477,6 +535,12 @@ export default function App() {
       <Navbar
         settings={settings}
         currentView="landing"
+        currentUser={customerUser}
+        onLogoutCustomer={() => {
+          customerAuth.logout();
+          setCustomerUser(null);
+          navigate('/');
+        }}
         onNavigate={handleNavigateView}
         onNavigateHome={() => navigate('/')}
         onStartCreate={() => {

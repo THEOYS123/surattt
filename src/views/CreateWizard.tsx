@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -22,9 +22,11 @@ import {
   School,
   GraduationCap,
   Users,
-  Ticket
+  Ticket,
+  UserCheck,
+  LogIn
 } from 'lucide-react';
-import { Category, Template, InvitationData, Order } from '../types';
+import { Category, Template, InvitationData, Order, UserAccount } from '../types';
 import { db } from '../services/storage';
 import { customerAuth } from '../services/customerAuth';
 import { SlugAvailability } from '../components/SlugAvailability';
@@ -39,13 +41,15 @@ interface CreateWizardProps {
   onCancel: () => void;
   initialCategoryId?: string;
   initialTemplateId?: string;
+  onOpenAuth?: (tab: 'login' | 'register') => void;
 }
 
 export const CreateWizard: React.FC<CreateWizardProps> = ({
   onComplete,
   onCancel,
   initialCategoryId,
-  initialTemplateId
+  initialTemplateId,
+  onOpenAuth
 }) => {
   const categories = useMemo(() => db.getCategories().filter(c => c.isActive), []);
   const allTemplates = useMemo(() => db.getTemplates().filter(t => t.isActive), []);
@@ -60,10 +64,25 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
   const [templateSearchQuery, setTemplateSearchQuery] = useState<string>('');
 
   // Customer Contact for Order (Auto fill if logged in)
-  const currentUser = useMemo(() => customerAuth.getCurrentUser(), []);
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => customerAuth.getCurrentUser());
   const [customerName, setCustomerName] = useState(() => currentUser?.name || currentUser?.username || '');
   const [email, setEmail] = useState(() => currentUser?.email || '');
   const [whatsapp, setWhatsapp] = useState(() => currentUser?.phone || '');
+
+  // Keep customer auth in sync
+  useEffect(() => {
+    const syncUser = () => {
+      const active = customerAuth.getCurrentUser();
+      setCurrentUser(active);
+      if (active) {
+        setCustomerName(prev => prev.trim() ? prev : (active.name || active.username || ''));
+        setEmail(prev => prev.trim() ? prev : (active.email || ''));
+        setWhatsapp(prev => prev.trim() ? prev : (active.phone || ''));
+      }
+    };
+    window.addEventListener('surat:auth-changed', syncUser);
+    return () => window.removeEventListener('surat:auth-changed', syncUser);
+  }, []);
 
   // Slug
   const [slug, setSlug] = useState('');
@@ -360,9 +379,13 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
       return;
     }
 
+    // Refresh current user and link order to account
+    const activeUser = customerAuth.getCurrentUser();
+    const matchedUser = activeUser || (email.trim() ? customerAuth.getUserByEmail(email.trim()) : null);
+
     const newOrder: Order = {
       id: `ORD-2026-${Math.floor(10000 + Math.random() * 90000)}`,
-      userId: currentUser?.id,
+      userId: matchedUser?.id || undefined,
       customerName: customerName.trim() || 'Tamu Undangan',
       email: email.trim(),
       whatsapp: whatsapp.trim(),
@@ -383,10 +406,10 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
 
     db.saveOrder(newOrder);
 
-    if (currentUser) {
+    if (matchedUser) {
       customerAuth.logActivity(
-        currentUser.id,
-        currentUser.email,
+        matchedUser.id,
+        matchedUser.email,
         'Membuat Pesanan Undangan',
         `Membuat pesanan baru ${newOrder.id} untuk undangan digital /${newOrder.slug} (Rp${basePrice.toLocaleString('id-ID')}).`,
         'ShoppingBag'
@@ -1569,9 +1592,26 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
             />
 
             <div className="border-t border-stone-100 pt-6 space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-stone-800">
-                Informasi Pemesan untuk Verifikasi Pembayaran
-              </h3>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-stone-800">
+                  Informasi Pemesan untuk Verifikasi Pembayaran
+                </h3>
+                {currentUser ? (
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full text-xs font-medium">
+                    <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Tersambung ke akun: <strong>{currentUser.username}</strong></span>
+                  </div>
+                ) : onOpenAuth ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenAuth('login')}
+                    className="inline-flex items-center gap-1 text-xs text-amber-700 hover:text-amber-800 font-semibold underline underline-offset-2"
+                  >
+                    <LogIn className="w-3.5 h-3.5" />
+                    <span>Sudah punya akun? Masuk disini</span>
+                  </button>
+                ) : null}
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>

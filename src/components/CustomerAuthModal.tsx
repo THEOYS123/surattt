@@ -35,6 +35,15 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   messageNotice
 }) => {
   const [activeTab, setActiveTab] = useState<'login' | 'register'>(initialTab);
+
+  // Sync tab whenever modal opens or initialTab changes
+  React.useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+      setErrorMsg(null);
+      setSuccessMsg(null);
+    }
+  }, [isOpen, initialTab]);
   
   // Login State
   const [loginIdentifier, setLoginIdentifier] = useState('');

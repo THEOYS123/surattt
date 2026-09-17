@@ -12,6 +12,8 @@ interface NavbarProps {
   onNavigateHome?: () => void;
   onStartCreate?: () => void;
   onOpenAuth?: (tab?: 'login' | 'register') => void;
+  currentUser?: UserAccount | null;
+  onLogoutCustomer?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -20,7 +22,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentView = 'landing',
   onNavigateHome,
   onStartCreate,
-  onOpenAuth
+  onOpenAuth,
+  currentUser: propUser,
+  onLogoutCustomer
 }) => {
   const settings = propSettings || db.getSettings();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -28,15 +32,32 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [searchOrderId, setSearchOrderId] = useState('');
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => customerAuth.getCurrentUser());
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(
+    () => propUser !== undefined ? propUser : customerAuth.getCurrentUser()
+  );
 
   useEffect(() => {
-    const checkUser = () => {
-      setCurrentUser(customerAuth.getCurrentUser());
+    if (propUser !== undefined) {
+      setCurrentUser(propUser);
+    }
+  }, [propUser]);
+
+  useEffect(() => {
+    const checkUser = (e?: Event) => {
+      const customEvt = e as CustomEvent<UserAccount | null>;
+      if (customEvt && customEvt.detail !== undefined) {
+        setCurrentUser(customEvt.detail);
+      } else {
+        setCurrentUser(customerAuth.getCurrentUser());
+      }
     };
-    checkUser();
+
+    window.addEventListener('surat:auth-changed', checkUser);
     window.addEventListener('storage', checkUser);
-    return () => window.removeEventListener('storage', checkUser);
+    return () => {
+      window.removeEventListener('surat:auth-changed', checkUser);
+      window.removeEventListener('storage', checkUser);
+    };
   }, []);
 
   const handleNav = (view: string, param?: string) => {
@@ -69,10 +90,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   const handleLogoutCustomer = () => {
-    customerAuth.logout();
-    setCurrentUser(null);
-    setUserDropdownOpen(false);
-    handleNav('landing');
+    if (onLogoutCustomer) {
+      onLogoutCustomer();
+    } else {
+      customerAuth.logout();
+      setCurrentUser(null);
+      setUserDropdownOpen(false);
+      handleNav('landing');
+    }
   };
 
   const handleSearchOrder = (e: React.FormEvent) => {

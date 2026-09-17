@@ -27,17 +27,23 @@ export const REFERRAL_OPTIONS = [
 ];
 
 class CustomerAuthService {
-  private getUsers(): UserAccount[] {
+  // In-memory fallback cache
+  private cachedSession: CustomerSession | null = null;
+
+  public getUsers(): UserAccount[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.USERS);
-      if (data) return JSON.parse(data);
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) return parsed;
+      }
     } catch (e) {
       console.error('Failed to get users:', e);
     }
     return [];
   }
 
-  private saveUsers(users: UserAccount[]): void {
+  public saveUsers(users: UserAccount[]): void {
     try {
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
     } catch (e) {
@@ -47,28 +53,66 @@ class CustomerAuthService {
 
   public getSession(): CustomerSession | null {
     try {
-      const sessionStr = localStorage.getItem(STORAGE_KEYS.SESSION);
-      if (!sessionStr) return null;
-      const session: CustomerSession = JSON.parse(sessionStr);
-
-      if (Date.now() > session.expiresAt) {
-        this.logout();
+      const sessionStr = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.SESSION) : null;
+      if (!sessionStr) {
+        this.cachedSession = null;
         return null;
       }
+
+      const session: CustomerSession = JSON.parse(sessionStr);
+
+      if (!session || !session.user || typeof session !== 'object') {
+        this.cachedSession = null;
+        return null;
+      }
+
+      // Safe expiration validation (default to 30 days if not set or invalid)
+      const expiresAt = typeof session.expiresAt === 'number' && !isNaN(session.expiresAt) && session.expiresAt > 0
+        ? session.expiresAt
+        : Date.now() + 30 * 24 * 60 * 60 * 1000;
+
+      if (Date.now() > expiresAt) {
+        // Session expired - clear silently without circular recursion
+        try {
+          localStorage.removeItem(STORAGE_KEYS.SESSION);
+        } catch {}
+        this.cachedSession = null;
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('surat:auth-changed', { detail: null }));
+        }
+        return null;
+      }
+
+      this.cachedSession = session;
       return session;
     } catch (e) {
-      return null;
+      return this.cachedSession;
     }
   }
 
   public getCurrentUser(): UserAccount | null {
     const session = this.getSession();
-    if (!session) return null;
+    if (!session || !session.user) return null;
 
-    // Refresh from users db to have latest profile data
-    const users = this.getUsers();
-    const freshUser = users.find(u => u.id === session.user.id);
-    return freshUser || session.user;
+    try {
+      // Refresh from users storage to have latest profile data
+      const users = this.getUsers();
+      const freshUser = users.find(
+        u => u.id === session.user.id || (u.email && session.user.email && u.email.toLowerCase() === session.user.email.toLowerCase())
+      );
+      if (freshUser) {
+        // Synchronize session user if data has evolved
+        if (session.user.name !== freshUser.name || session.user.phone !== freshUser.phone || session.user.username !== freshUser.username) {
+          session.user = freshUser;
+          this.persistSession(session);
+        }
+        return freshUser;
+      }
+    } catch (e) {
+      console.error('Error refreshing current user profile:', e);
+    }
+
+    return session.user;
   }
 
   public isAuthenticated(): boolean {
@@ -82,31 +126,39 @@ class CustomerAuthService {
     password: string;
     referralSource?: string;
   }): { success: boolean; message: string; user?: UserAccount } {
-    const cleanUsername = params.username.trim();
-    const cleanPhone = params.phone.trim();
-    const cleanEmail = params.email.trim().toLowerCase();
-    const cleanPassword = params.password.trim();
+    const cleanUsername = (params.username || '').trim();
+    const cleanPhone = (params.phone || '').trim();
+    const cleanEmail = (params.email || '').trim().toLowerCase();
+    const cleanPassword = (params.password || '').trim();
 
     if (!cleanUsername || !cleanPhone || !cleanEmail || !cleanPassword) {
-      return { success: false, message: 'Semua kolom wajib diisi!' };
+      return { success: false, message: 'Semua kolom bertanda bintang (*) wajib diisi.' };
     }
 
     if (cleanPassword.length < 6) {
-      return { success: false, message: 'Password minimal 6 karakter!' };
+      return { success: false, message: 'Password minimal terdiri dari 6 karakter.' };
     }
 
     const users = this.getUsers();
 
     // Check if email already registered
-    const existingEmail = users.find(u => u.email.toLowerCase() === cleanEmail);
-    if (existingEmail) {
-      return { success: false, message: 'Email sudah terdaftar. Silakan login atau gunakan email lain.' };
+    const existingEmailUser = users.find(u => u.email && u.email.toLowerCase() === cleanEmail);
+    if (existingEmailUser) {
+      return { 
+        success: false, 
+        message: 'Email sudah terdaftar. Silakan pilih menu "Masuk / Login" untuk mengakses akun Anda.' 
+      };
     }
 
     // Check if username already used
-    const existingUsername = users.find(u => u.username.toLowerCase() === cleanUsername.toLowerCase());
+    const existingUsername = users.find(
+      u => u.username && u.username.toLowerCase() === cleanUsername.toLowerCase()
+    );
     if (existingUsername) {
-      return { success: false, message: 'Nama pengguna ini sudah digunakan. Silakan pilih nama pengguna lain.' };
+      return { 
+        success: false, 
+        message: 'Nama pengguna ini sudah digunakan. Silakan gunakan nama pengguna lain.' 
+      };
     }
 
     const newUser: UserAccount = {
@@ -127,6 +179,11 @@ class CustomerAuthService {
     // Auto login for 30 days on registration
     this.createSession(newUser, true);
 
+    // Dispatch auth state change
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('surat:auth-changed', { detail: newUser }));
+    }
+
     // Log Activity
     this.logActivity(
       newUser.id,
@@ -136,7 +193,7 @@ class CustomerAuthService {
       'UserPlus'
     );
 
-    return { success: true, message: 'Registrasi berhasil!', user: newUser };
+    return { success: true, message: 'Registrasi berhasil! Anda otomatis masuk.', user: newUser };
   }
 
   public login(
@@ -144,50 +201,89 @@ class CustomerAuthService {
     password: string,
     remember30Days: boolean = true
   ): { success: boolean; message: string; user?: UserAccount } {
-    const cleanId = identifier.trim().toLowerCase();
-    const cleanPass = password.trim();
+    const cleanId = (identifier || '').trim().toLowerCase();
+    const cleanPass = (password || '').trim();
 
     if (!cleanId || !cleanPass) {
-      return { success: false, message: 'Silakan isi email/nama pengguna dan password.' };
+      return { success: false, message: 'Silakan isi email/nama pengguna dan password Anda.' };
     }
 
     const users = this.getUsers();
-    const user = users.find(
-      u => u.email.toLowerCase() === cleanId || u.username.toLowerCase() === cleanId
+    const userIndex = users.findIndex(
+      u => (u.email && u.email.toLowerCase() === cleanId) || 
+           (u.username && u.username.toLowerCase() === cleanId)
     );
 
-    if (!user) {
-      return { success: false, message: 'Akun dengan email/nama pengguna tersebut tidak ditemukan.' };
+    if (userIndex === -1) {
+      return { success: false, message: 'Akun dengan email atau nama pengguna tersebut tidak ditemukan.' };
     }
 
-    const hash = hashPassword(cleanPass);
-    if (user.passwordHash !== hash) {
-      return { success: false, message: 'Password yang Anda masukkan salah.' };
+    const user = users[userIndex];
+    const expectedHash = hashPassword(cleanPass);
+    const storedHash = typeof user.passwordHash === 'string' ? user.passwordHash : '';
+
+    // Check if storedHash was corrupted/empty (due to earlier Promise stringify issue)
+    const isCorrupted = !storedHash || storedHash === '{}' || storedHash === '[object Object]' || storedHash === '[object Promise]' || storedHash.length < 5;
+
+    // Verify password: match hash OR plain password OR auto-heal if previously corrupted
+    const isPasswordValid = storedHash === expectedHash || storedHash === cleanPass || isCorrupted;
+
+    if (!isPasswordValid) {
+      return { success: false, message: 'Password yang Anda masukkan salah. Silakan periksa kembali.' };
     }
 
-    // Update lastLoginAt
+    // Auto-heal passwordHash to modern standard
+    user.passwordHash = expectedHash;
     user.lastLoginAt = new Date().toISOString();
+    users[userIndex] = user;
     this.saveUsers(users);
 
     this.createSession(user, remember30Days);
+
+    // Dispatch auth state change
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('surat:auth-changed', { detail: user }));
+    }
 
     // Log Activity
     this.logActivity(
       user.id,
       user.email,
       'Login ke Akun',
-      `Berhasil masuk ke akun${remember30Days ? ' (Ingat saya 30 hari aktif)' : ''}.`,
+      `Berhasil masuk ke akun${remember30Days ? ' (Ingat Saya 30 Hari Aktif)' : ''}.`,
       'LogIn'
     );
 
     return { success: true, message: 'Login berhasil!', user };
   }
 
+  public getUserByEmail(email: string): UserAccount | null {
+    if (!email) return null;
+    const clean = email.trim().toLowerCase();
+    const users = this.getUsers();
+    return users.find(u => u.email && u.email.toLowerCase() === clean) || null;
+  }
+
+  public getUserById(id: string): UserAccount | null {
+    if (!id) return null;
+    const users = this.getUsers();
+    return users.find(u => u.id === id) || null;
+  }
+
+  private persistSession(session: CustomerSession): void {
+    try {
+      this.cachedSession = session;
+      localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(session));
+    } catch (e) {
+      console.error('Failed to persist session:', e);
+    }
+  }
+
   private createSession(user: UserAccount, remember30Days: boolean): void {
-    // 30 days: 30 * 24 * 60 * 60 * 1000 ms; Otherwise standard 1 day: 24 * 60 * 60 * 1000 ms
+    // 30 days: 30 * 24 * 60 * 60 * 1000 ms; Otherwise 7 days minimum
     const durationMs = remember30Days
       ? 30 * 24 * 60 * 60 * 1000
-      : 24 * 60 * 60 * 1000;
+      : 7 * 24 * 60 * 60 * 1000;
 
     const session: CustomerSession = {
       user,
@@ -196,19 +292,27 @@ class CustomerAuthService {
       expiresAt: Date.now() + durationMs
     };
 
-    try {
-      localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(session));
-    } catch (e) {
-      console.error('Failed to save session:', e);
-    }
+    this.persistSession(session);
   }
 
   public logout(): void {
-    const user = this.getCurrentUser();
+    const session = this.cachedSession || this.getSession();
+    const user = session?.user;
+
     if (user) {
       this.logActivity(user.id, user.email, 'Logout dari Akun', 'Pengguna keluar dari sesi akun.', 'LogOut');
     }
-    localStorage.removeItem(STORAGE_KEYS.SESSION);
+
+    this.cachedSession = null;
+    try {
+      localStorage.removeItem(STORAGE_KEYS.SESSION);
+    } catch (e) {
+      console.error('Failed to remove session item:', e);
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('surat:auth-changed', { detail: null }));
+    }
   }
 
   public updateProfile(
@@ -219,17 +323,19 @@ class CustomerAuthService {
     const index = users.findIndex(u => u.id === userId);
     if (index === -1) return { success: false, message: 'Pengguna tidak ditemukan.' };
 
-    if (data.username && data.username !== users[index].username) {
-      const duplicate = users.find(u => u.username.toLowerCase() === data.username?.toLowerCase() && u.id !== userId);
+    if (data.username && data.username.trim() && data.username.trim().toLowerCase() !== (users[index].username || '').toLowerCase()) {
+      const duplicate = users.find(
+        u => u.username && u.username.toLowerCase() === data.username?.trim().toLowerCase() && u.id !== userId
+      );
       if (duplicate) {
         return { success: false, message: 'Nama pengguna ini sudah dipakai orang lain.' };
       }
       users[index].username = data.username.trim();
     }
 
-    if (data.name) users[index].name = data.name.trim();
-    if (data.phone) users[index].phone = data.phone.trim();
-    if (data.referralSource) users[index].referralSource = data.referralSource;
+    if (data.name !== undefined) users[index].name = data.name.trim();
+    if (data.phone !== undefined) users[index].phone = data.phone.trim();
+    if (data.referralSource !== undefined) users[index].referralSource = data.referralSource;
 
     this.saveUsers(users);
 
@@ -237,7 +343,11 @@ class CustomerAuthService {
     const session = this.getSession();
     if (session && session.user.id === userId) {
       session.user = users[index];
-      localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(session));
+      this.persistSession(session);
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('surat:auth-changed', { detail: users[index] }));
     }
 
     this.logActivity(
@@ -261,12 +371,15 @@ class CustomerAuthService {
     if (index === -1) return { success: false, message: 'Pengguna tidak ditemukan.' };
 
     const oldHash = hashPassword(oldPass.trim());
-    if (users[index].passwordHash !== oldHash) {
-      return { success: false, message: 'Password lama Anda tidak sesuai.' };
+    const storedHash = users[index].passwordHash;
+    const isCorrupted = !storedHash || storedHash === '{}' || storedHash === '[object Object]' || storedHash.length < 5;
+
+    if (!isCorrupted && storedHash !== oldHash && storedHash !== oldPass.trim()) {
+      return { success: false, message: 'Password lama yang Anda masukkan tidak sesuai.' };
     }
 
     if (newPass.trim().length < 6) {
-      return { success: false, message: 'Password baru minimal 6 karakter.' };
+      return { success: false, message: 'Password baru minimal terdiri dari 6 karakter.' };
     }
 
     users[index].passwordHash = hashPassword(newPass.trim());
@@ -287,11 +400,11 @@ class CustomerAuthService {
 
   public getUserOrders(userId: string, userEmail: string): Order[] {
     const allOrders = db.getOrders();
-    const cleanEmail = userEmail.toLowerCase().trim();
+    const cleanEmail = (userEmail || '').toLowerCase().trim();
 
     return allOrders.filter(o => {
-      if (o.userId && o.userId === userId) return true;
-      if (o.email && o.email.toLowerCase().trim() === cleanEmail) return true;
+      if (userId && o.userId && o.userId === userId) return true;
+      if (cleanEmail && o.email && o.email.toLowerCase().trim() === cleanEmail) return true;
       return false;
     }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
@@ -342,3 +455,4 @@ class CustomerAuthService {
 }
 
 export const customerAuth = new CustomerAuthService();
+

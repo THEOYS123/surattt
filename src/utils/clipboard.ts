@@ -25,3 +25,5 @@ export async function safeCopyToClipboard(text: string): Promise<boolean> {
     return false;
   }
 }
+
+export const copyToClipboard = safeCopyToClipboard;

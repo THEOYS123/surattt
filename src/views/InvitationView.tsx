@@ -53,11 +53,11 @@ export const InvitationView: React.FC<InvitationViewProps> = ({
   const [rsvpSubmitted, setRsvpSubmitted] = useState(false);
   const [rsvps, setRsvps] = useState<RSVPItem[]>([]);
 
-  const d = order.invitationData;
+  const d = order?.invitationData || ({} as any);
 
   // Accurately categorize event type
   const categorySlug = (d.categorySlug || '').toLowerCase();
-  const categoryId = order.categoryId || '';
+  const categoryId = order?.categoryId || '';
 
   const isSchool = categorySlug === 'sekolah' || categoryId === 'cat-16' || Boolean(d.institutionName && !d.groomName);
   const isGraduation = categorySlug === 'wisuda' || categoryId === 'cat-14';

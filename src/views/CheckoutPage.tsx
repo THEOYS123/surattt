@@ -14,6 +14,7 @@ import {
 import { Order, SiteSettings } from '../types';
 import { db } from '../services/storage';
 import { safeCopyToClipboard } from '../utils/clipboard';
+import { telegramService } from '../services/telegramService';
 
 interface CheckoutPageProps {
   order: Order;
@@ -95,6 +96,11 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     };
 
     db.saveOrder(updatedOrder);
+
+    // Auto-report to Telegram Bot if configured
+    telegramService.notifyNewOrder(updatedOrder).catch((err) => {
+      console.warn('Telegram notification failed:', err);
+    });
 
     setTimeout(() => {
       setIsSubmitting(false);

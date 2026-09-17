@@ -88,7 +88,14 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   qrisImageUrl: DEFAULT_QRIS_IMAGE,
   transferInstructions: '1. Buka aplikasi GoPay, OVO, DANA, BCA, Mandiri, atau m-banking lainnya.\n2. Scan kode QRIS di atas dan periksa nama merchant: SURAT DIGITAL INDONESIA.\n3. Masukkan nominal sesuai harga pesanan.\n4. Simpan screenshot/foto bukti transfer, lalu unggah pada formulir di bawah ini.',
 
-  primaryColor: 'amber'
+  primaryColor: 'amber',
+
+  // Telegram Bot Defaults
+  telegramBotToken: '',
+  telegramChatId: '',
+  telegramEnabled: false,
+  telegramNotifyOnOrder: true,
+  telegramNotifyOnReminder: true
 };
 
 export const INITIAL_CATEGORIES: Category[] = [

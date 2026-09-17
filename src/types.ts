@@ -282,6 +282,13 @@ export interface SiteSettings {
 
   // Theme styling
   primaryColor?: string;
+
+  // Telegram Bot Integration
+  telegramBotToken?: string;
+  telegramChatId?: string;
+  telegramEnabled?: boolean;
+  telegramNotifyOnOrder?: boolean;
+  telegramNotifyOnReminder?: boolean;
 }
 
 export interface ActivityLog {

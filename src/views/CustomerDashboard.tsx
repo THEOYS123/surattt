@@ -27,13 +27,15 @@ import {
   ChevronRight,
   UserCheck,
   ShoppingBag,
-  RefreshCw
+  RefreshCw,
+  Zap
 } from 'lucide-react';
 import { UserAccount, Order, UserActivityLog, SiteSettings } from '../types';
 import { customerAuth } from '../services/customerAuth';
 import { db } from '../services/storage';
 import { generateStandaloneWebsiteZip } from '../services/zipGenerator';
 import { ShareModal } from '../components/ShareModal';
+import { ExpediteOrderModal } from '../components/ExpediteOrderModal';
 import { copyToClipboard } from '../utils/clipboard';
 
 interface CustomerDashboardProps {
@@ -65,8 +67,9 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const [filterStatus, setFilterStatus] = useState<'all' | 'PAID' | 'PENDING' | 'REJECTED'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Share modal
+  // Share & Expedite modal
   const [selectedShareOrder, setSelectedShareOrder] = useState<Order | null>(null);
+  const [selectedExpediteOrder, setSelectedExpediteOrder] = useState<Order | null>(null);
   
   // Profile Form state
   const [name, setName] = useState(user.name || user.username);
@@ -514,7 +517,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                             </button>
                           </>
                         ) : (
-                          <>
+                          <div className="flex items-center gap-2 flex-wrap">
                             <button
                               onClick={() => onViewOrder(order.id)}
                               className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors"
@@ -522,7 +525,17 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                               <Clock className="w-3.5 h-3.5" />
                               <span>{isPending ? 'Cek Status & Bukti Transfer' : 'Upload Ulang Bukti Bayar'}</span>
                             </button>
-                          </>
+
+                            {isPending && (
+                              <button
+                                onClick={() => setSelectedExpediteOrder(order)}
+                                className="px-3.5 py-2 rounded-xl bg-stone-950 hover:bg-stone-900 text-amber-400 font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors"
+                              >
+                                <Zap className="w-3.5 h-3.5 fill-amber-400" />
+                                <span>⚡ Percepat Verifikasi (Telegram)</span>
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -728,6 +741,22 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
         <ShareModal
           order={selectedShareOrder}
           onClose={() => setSelectedShareOrder(null)}
+        />
+      )}
+
+      {/* Expedite Order Modal */}
+      {selectedExpediteOrder && (
+        <ExpediteOrderModal
+          order={selectedExpediteOrder}
+          onClose={() => setSelectedExpediteOrder(null)}
+          onSuccess={() => {
+            const list = db.getOrders();
+            const myOrders = list.filter(o => 
+              (o.userId && o.userId === user.id) || 
+              (o.email && o.email.toLowerCase() === user.email.toLowerCase())
+            );
+            setOrders(myOrders);
+          }}
         />
       )}
     </div>

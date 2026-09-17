@@ -12,12 +12,14 @@ import {
   MessageCircle,
   Copy,
   Check,
-  FileCheck
+  FileCheck,
+  Zap
 } from 'lucide-react';
 import { Order, SiteSettings } from '../types';
 import { db } from '../services/storage';
 import { generateInvitationZip } from '../services/zipGenerator';
 import { ShareModal } from '../components/ShareModal';
+import { ExpediteOrderModal } from '../components/ExpediteOrderModal';
 import { safeCopyToClipboard } from '../utils/clipboard';
 
 interface OrderStatusPageProps {
@@ -35,6 +37,7 @@ export const OrderStatusPage: React.FC<OrderStatusPageProps> = ({
 }) => {
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [expediteModalOpen, setExpediteModalOpen] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
 
   // Re-upload proof state for REJECTED orders
@@ -134,6 +137,15 @@ export const OrderStatusPage: React.FC<OrderStatusPageProps> = ({
               <p className="text-xs sm:text-sm text-amber-100 max-w-md mx-auto">
                 Admin sedang memverifikasi bukti transfer Anda. Halaman ini akan otomatis diperbarui setelah admin menyetujui order Anda.
               </p>
+              <div className="pt-2">
+                <button
+                  onClick={() => setExpediteModalOpen(true)}
+                  className="inline-flex items-center gap-2 bg-stone-950 hover:bg-stone-900 text-amber-400 font-bold px-5 py-2.5 rounded-full text-xs shadow-lg transition-transform hover:scale-105 cursor-pointer"
+                >
+                  <Zap className="w-4 h-4 fill-amber-400" />
+                  <span>⚡ Ingatkan Owner / Percepat Pesanan (Telegram)</span>
+                </button>
+              </div>
             </div>
           )}
 
@@ -332,9 +344,19 @@ export const OrderStatusPage: React.FC<OrderStatusPageProps> = ({
         {/* Share Modal */}
         {shareModalOpen && (
           <ShareModal
+            order={order}
             slug={order.slug}
-            title={order.invitationData.title}
+            title={order.invitationData?.title}
             onClose={() => setShareModalOpen(false)}
+          />
+        )}
+
+        {/* Expedite Order Modal */}
+        {expediteModalOpen && (
+          <ExpediteOrderModal
+            order={order}
+            onClose={() => setExpediteModalOpen(false)}
+            onSuccess={() => onRefresh()}
           />
         )}
 

@@ -456,13 +456,15 @@ export default function App() {
 
   // Route: Dynamic Invitation View (/:slug)
   if (!isSpecialRoute) {
-    const rawSlug = currentPath.replace(/^\//, '').trim();
+    const rawSlug = currentPath.split('?')[0].replace(/^\//, '').trim();
+    const guestParam = searchParams.get('to') || 
+      (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('to') : null) || '';
     const orderForSlug = db.getOrderBySlug(rawSlug);
 
     if (orderForSlug) {
       // Check if invitation is active or if admin is inspecting
       if (orderForSlug.paymentStatus === 'PAID' || isAdminAuthenticated) {
-        return <InvitationView order={orderForSlug} />;
+        return <InvitationView order={orderForSlug} guestNameParam={guestParam} />;
       }
 
       // If pending or rejected, show informative notice

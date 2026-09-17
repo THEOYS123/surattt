@@ -25,12 +25,17 @@ import {
   Filter,
   Save,
   AlertTriangle,
-  Upload
+  Upload,
+  Bot,
+  Send,
+  Bell,
+  Zap
 } from 'lucide-react';
 import { Order, Template, Category, SiteSettings, AdminUser } from '../types';
 import { db } from '../services/storage';
 import { authService } from '../services/auth';
 import { generateInvitationZip } from '../services/zipGenerator';
+import { telegramService } from '../services/telegramService';
 
 interface AdminPanelProps {
   onLogout: () => void;
@@ -72,7 +77,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [settingsSaveSuccess, setSettingsSaveSuccess] = useState(false);
 
   // Settings sub-tab state
-  const [settingsSubTab, setSettingsSubTab] = useState<'identity' | 'hero' | 'banner' | 'features' | 'faqs' | 'contact' | 'qris'>('identity');
+  const [settingsSubTab, setSettingsSubTab] = useState<'identity' | 'hero' | 'banner' | 'features' | 'faqs' | 'contact' | 'qris' | 'telegram'>('identity');
+
+  // Telegram Bot Test State
+  const [telegramTestStatus, setTelegramTestStatus] = useState<{
+    loading: boolean;
+    result?: { success: boolean; message: string };
+  }>({ loading: false });
 
   // Template Modal State
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
@@ -216,6 +227,43 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setSettings(settingsForm);
     setSettingsSaveSuccess(true);
     setTimeout(() => setSettingsSaveSuccess(false), 2500);
+  };
+
+  // Telegram Bot Test Handler
+  const handleTestTelegram = async () => {
+    if (!settingsForm.telegramBotToken?.trim() || !settingsForm.telegramChatId?.trim()) {
+      setTelegramTestStatus({
+        loading: false,
+        result: {
+          success: false,
+          message: 'Silakan isi Bot Token dan Chat ID / Channel ID terlebih dahulu sebelum melakukan uji coba kirim.'
+        }
+      });
+      return;
+    }
+
+    setTelegramTestStatus({ loading: true, result: undefined });
+    try {
+      const res = await telegramService.sendTestMessage(
+        settingsForm.telegramBotToken.trim(),
+        settingsForm.telegramChatId.trim()
+      );
+      setTelegramTestStatus({
+        loading: false,
+        result: {
+          success: res.success,
+          message: res.message
+        }
+      });
+    } catch (err: any) {
+      setTelegramTestStatus({
+        loading: false,
+        result: {
+          success: false,
+          message: 'Gagal mengirim: ' + (err.message || String(err))
+        }
+      });
+    }
   };
 
   // QRIS File Upload handler
@@ -1152,7 +1200,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 { id: 'features', label: '4. Kelola Fitur' },
                 { id: 'faqs', label: '5. Kelola FAQ' },
                 { id: 'contact', label: '6. Kontak & CS' },
-                { id: 'qris', label: '7. QRIS Pembayaran' }
+                { id: 'qris', label: '7. QRIS Pembayaran' },
+                { id: 'telegram', label: '8. Bot Telegram (Laporan Otomatis)' }
               ].map((sub) => (
                 <button
                   key={sub.id}
@@ -1638,6 +1687,192 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         />
                       </label>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SUBTAB: BOT TELEGRAM (LAPORAN & NUDGE) */}
+              {settingsSubTab === 'telegram' && (
+                <div className="space-y-6">
+                  <div className="border-b border-stone-100 pb-3 flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-sky-100 text-sky-700 rounded-lg">
+                          <Bot className="w-5 h-5" />
+                        </div>
+                        <h2 className="text-sm font-bold text-stone-900 uppercase tracking-wider">
+                          Integrasi Bot Telegram Owner
+                        </h2>
+                      </div>
+                      <p className="text-xs text-stone-500 mt-1">
+                        Bot Telegram akan otomatis mengirim laporan instan saat ada pesanan/bukti transfer masuk, dan menerima notifikasi saat pembeli menekan tombol percepat pesanan.
+                      </p>
+                    </div>
+                    <span className={`text-[11px] font-bold px-3 py-1 rounded-full ${
+                      settingsForm.telegramEnabled && settingsForm.telegramBotToken && settingsForm.telegramChatId
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-stone-100 text-stone-600'
+                    }`}>
+                      {settingsForm.telegramEnabled && settingsForm.telegramBotToken && settingsForm.telegramChatId ? '● Aktif' : '○ Belum Aktif'}
+                    </span>
+                  </div>
+
+                  {/* Enable Switch */}
+                  <div className="p-4 bg-stone-50 rounded-2xl border border-stone-200 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-stone-900 block">
+                        Aktifkan Notifikasi Telegram
+                      </span>
+                      <span className="text-[11px] text-stone-500 block">
+                        Matikan jika tidak ingin bot mengirim pesan ke akun/grup Telegram Anda.
+                      </span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settingsForm.telegramEnabled ?? false}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, telegramEnabled: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-stone-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Credentials Input */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-stone-700 mb-1">
+                        Telegram Bot Token *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Contoh: 7123456789:AAHq..."
+                        value={settingsForm.telegramBotToken || ''}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, telegramBotToken: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-300 rounded-xl text-xs font-mono"
+                      />
+                      <span className="text-[10px] text-stone-500 mt-1 block">
+                        Dapatkan dari akun resmi <strong>@BotFather</strong> di Telegram.
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-stone-700 mb-1">
+                        Telegram Chat ID / Channel ID *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Contoh: 123456789 atau -100123456789"
+                        value={settingsForm.telegramChatId || ''}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, telegramChatId: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-300 rounded-xl text-xs font-mono"
+                      />
+                      <span className="text-[10px] text-stone-500 mt-1 block">
+                        ID akun Telegram Anda (cek via <strong>@userinfobot</strong> atau <strong>@getmyid_bot</strong>).
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Notification Triggers */}
+                  <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-200/70 space-y-3">
+                    <span className="text-xs font-bold text-amber-950 uppercase tracking-wider block">
+                      Pengaturan Pemicu Notifikasi (Trigger)
+                    </span>
+
+                    <div className="space-y-2.5">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={settingsForm.telegramNotifyOnOrder ?? true}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, telegramNotifyOnOrder: e.target.checked })}
+                          className="w-4 h-4 rounded-md border-amber-300 text-amber-600 focus:ring-amber-500"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-stone-800 block">
+                            Laporan Otomatis Pesanan Baru & Bukti Transfer
+                          </span>
+                          <span className="text-[11px] text-stone-600 block">
+                            Kirim ringkasan saat pelanggan mengisi formulir checkout dan mengirim bukti transfer.
+                          </span>
+                        </div>
+                      </label>
+
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={settingsForm.telegramNotifyOnReminder ?? true}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, telegramNotifyOnReminder: e.target.checked })}
+                          className="w-4 h-4 rounded-md border-amber-300 text-amber-600 focus:ring-amber-500"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-stone-800 block">
+                            Notifikasi "Percepat Pesanan" dari Pembeli (Nudge/Reminder)
+                          </span>
+                          <span className="text-[11px] text-stone-600 block">
+                            Kirim peringatan instan ke Telegram saat pembeli mengklik tombol ingatkan owner di halaman status.
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Test Connection Button & Result */}
+                  <div className="p-4 bg-stone-900 text-white rounded-2xl space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <span className="text-xs font-bold block text-white">
+                          Uji Coba Kirim Pesan (Live Test)
+                        </span>
+                        <span className="text-[11px] text-stone-400 block">
+                          Kirim pesan pengujian ke Telegram Anda untuk memastikan Bot Token dan Chat ID bekerja.
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleTestTelegram}
+                        disabled={telegramTestStatus.loading}
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-stone-950 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>{telegramTestStatus.loading ? 'Mengirim...' : 'Uji Coba Sekarang'}</span>
+                      </button>
+                    </div>
+
+                    {telegramTestStatus.result && (
+                      <div className={`p-3 rounded-xl text-xs font-medium border ${
+                        telegramTestStatus.result.success
+                          ? 'bg-emerald-950/80 border-emerald-700 text-emerald-300'
+                          : 'bg-rose-950/80 border-rose-700 text-rose-300'
+                      }`}>
+                        {telegramTestStatus.result.success ? '✓ Berhasil: ' : '✕ Gagal: '}
+                        {telegramTestStatus.result.message}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Step-by-step Setup Guide */}
+                  <div className="bg-stone-50 rounded-2xl p-5 border border-stone-200 space-y-3">
+                    <span className="text-xs font-bold text-stone-900 uppercase tracking-wider block">
+                      📖 Panduan 3 Menit Menghubungkan Bot Telegram:
+                    </span>
+                    <ol className="list-decimal list-inside text-xs text-stone-600 space-y-2 leading-relaxed">
+                      <li>
+                        Buka aplikasi <strong>Telegram</strong> dan cari akun <strong>@BotFather</strong>.
+                      </li>
+                      <li>
+                        Ketik <code>/newbot</code>, ikuti petunjuknya, lalu salin kode <strong>API Token</strong> (misal: <code>7123456789:AAH...</code>) dan tempel ke kolom <strong>Telegram Bot Token</strong> di atas.
+                      </li>
+                      <li>
+                        Buka bot yang baru dibuat di Telegram dan klik tombol <strong>START</strong> agar bot memiliki izin mengirim pesan ke Anda.
+                      </li>
+                      <li>
+                        Cari bot <strong>@userinfobot</strong> atau <strong>@getmyid_bot</strong> di Telegram untuk melihat <strong>Id</strong> akun Anda (contoh: <code>123456789</code>), lalu tempel ke kolom <strong>Chat ID</strong>.
+                      </li>
+                      <li>
+                        Klik tombol <strong>Uji Coba Sekarang</strong> di atas, lalu klik <strong>Simpan Semua Pengaturan Website</strong> di bawah.
+                      </li>
+                    </ol>
                   </div>
                 </div>
               )}

@@ -9,11 +9,17 @@ import {
   Upload,
   AlertTriangle,
   RefreshCw,
-  MessageCircle,
   Copy,
   Check,
   FileCheck,
-  Zap
+  Zap,
+  Edit3,
+  Calendar,
+  MapPin,
+  Music,
+  Image as ImageIcon,
+  User,
+  Info
 } from 'lucide-react';
 import { Order, SiteSettings } from '../types';
 import { db } from '../services/storage';
@@ -27,13 +33,15 @@ interface OrderStatusPageProps {
   settings: SiteSettings;
   onRefresh: () => void;
   onGoToHome: () => void;
+  onEditOrder?: (order: Order) => void;
 }
 
 export const OrderStatusPage: React.FC<OrderStatusPageProps> = ({
   order,
   settings,
   onRefresh,
-  onGoToHome
+  onGoToHome,
+  onEditOrder
 }) => {
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -45,7 +53,13 @@ export const OrderStatusPage: React.FC<OrderStatusPageProps> = ({
   const [isReUploading, setIsReUploading] = useState(false);
   const [reUploadSuccess, setReUploadSuccess] = useState(false);
 
-  const invitationUrl = `${window.location.origin}/${order.slug.replace(/^\//, '')}`;
+  const d = order.invitationData || ({} as any);
+  const isPaid = order.paymentStatus === 'PAID';
+  const isPending = order.paymentStatus === 'PENDING';
+  const isRejected = order.paymentStatus === 'REJECTED';
+
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://surattt.netlify.app';
+  const invitationUrl = `${baseUrl}/${order.slug.replace(/^\//, '')}`;
 
   const handleDownloadZip = async () => {
     try {
@@ -105,7 +119,7 @@ export const OrderStatusPage: React.FC<OrderStatusPageProps> = ({
         <div className="bg-white rounded-3xl shadow-sm border border-stone-200 overflow-hidden">
           
           {/* PAID Banner */}
-          {order.paymentStatus === 'PAID' && (
+          {isPaid && (
             <div className="bg-emerald-600 text-white p-6 sm:p-8 text-center space-y-3">
               <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mx-auto">
                 <CheckCircle2 className="w-7 h-7 text-white" />
@@ -117,13 +131,13 @@ export const OrderStatusPage: React.FC<OrderStatusPageProps> = ({
                 Undangan Anda Telah Aktif & Terbit!
               </h1>
               <p className="text-xs sm:text-sm text-emerald-100 max-w-md mx-auto">
-                Selamat! Pembayaran Anda telah disetujui admin. Link undangan online kini aktif dan file ZIP website mandiri siap di-download.
+                Selamat! Pembayaran Anda telah disetujui admin. Link undangan online kini aktif dan Anda bebas mengedit data undangan kapan saja.
               </p>
             </div>
           )}
 
           {/* PENDING Banner */}
-          {order.paymentStatus === 'PENDING' && (
+          {isPending && (
             <div className="bg-amber-600 text-white p-6 sm:p-8 text-center space-y-3">
               <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mx-auto">
                 <Clock className="w-7 h-7 text-white animate-spin-slow" />
@@ -135,7 +149,7 @@ export const OrderStatusPage: React.FC<OrderStatusPageProps> = ({
                 Bukti Pembayaran Diterima
               </h1>
               <p className="text-xs sm:text-sm text-amber-100 max-w-md mx-auto">
-                Admin sedang memverifikasi bukti transfer Anda. Halaman ini akan otomatis diperbarui setelah admin menyetujui order Anda.
+                Admin sedang memverifikasi bukti transfer Anda. Anda tetap dapat mengedit data undangan selagi menunggu.
               </p>
               <div className="pt-2">
                 <button
@@ -150,7 +164,7 @@ export const OrderStatusPage: React.FC<OrderStatusPageProps> = ({
           )}
 
           {/* REJECTED Banner */}
-          {order.paymentStatus === 'REJECTED' && (
+          {isRejected && (
             <div className="bg-rose-600 text-white p-6 sm:p-8 text-center space-y-3">
               <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mx-auto">
                 <XCircle className="w-7 h-7 text-white" />
@@ -170,64 +184,87 @@ export const OrderStatusPage: React.FC<OrderStatusPageProps> = ({
           {/* Body Content */}
           <div className="p-6 sm:p-8 space-y-6">
             
-            {/* Action Buttons if PAID */}
-            {order.paymentStatus === 'PAID' && (
-              <div className="space-y-4 pb-6 border-b border-stone-200">
-                <div className="bg-stone-50 p-4 rounded-2xl border border-stone-200 space-y-3">
+            {/* Primary Action Buttons Bar */}
+            <div className="space-y-4 pb-6 border-b border-stone-200">
+              {/* URL Undangan Bar */}
+              <div className="bg-stone-50 p-4 rounded-2xl border border-stone-200 space-y-3">
+                <div className="flex items-center justify-between">
                   <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider">
-                    Alamat URL Undangan Aktif:
+                    Alamat URL Undangan:
                   </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      readOnly
-                      value={invitationUrl}
-                      className="flex-1 bg-white border border-stone-300 rounded-xl px-3.5 py-2.5 text-xs font-mono font-medium text-stone-800"
-                    />
-                    <button
-                      onClick={handleCopyUrl}
-                      className="px-4 py-2.5 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors shrink-0"
-                    >
-                      {copiedUrl ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                      <span>{copiedUrl ? 'Tersalin' : 'Salin'}</span>
-                    </button>
-                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                    isPaid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {isPaid ? 'Aktif Publik' : 'Menunggu Verifikasi'}
+                  </span>
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <a
-                    href={`/${order.slug.replace(/^\//, '')}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex-1 bg-amber-600 hover:bg-amber-500 text-white py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    <span>Buka Undangan</span>
-                  </a>
-
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={invitationUrl}
+                    className="flex-1 bg-white border border-stone-300 rounded-xl px-3.5 py-2.5 text-xs font-mono font-medium text-stone-800 truncate"
+                  />
                   <button
-                    onClick={() => setShareModalOpen(true)}
-                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all"
+                    onClick={handleCopyUrl}
+                    className="px-4 py-2.5 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors shrink-0"
                   >
-                    <Share2 className="w-4 h-4" />
-                    <span>Bagikan WhatsApp</span>
-                  </button>
-
-                  <button
-                    onClick={handleDownloadZip}
-                    disabled={isDownloadingZip}
-                    className="flex-1 bg-stone-900 hover:bg-stone-800 disabled:opacity-50 text-white py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all"
-                    id="btn-download-zip"
-                  >
-                    <Download className="w-4 h-4 text-amber-400" />
-                    <span>{isDownloadingZip ? 'Membuat ZIP...' : 'Download ZIP (.zip)'}</span>
+                    {copiedUrl ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                    <span>{copiedUrl ? 'Tersalin' : 'Salin'}</span>
                   </button>
                 </div>
               </div>
-            )}
+
+              {/* Action Buttons Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Tombol Edit Undangan Lengkap (Selalu Tersedia) */}
+                {onEditOrder && (
+                  <button
+                    onClick={() => onEditOrder(order)}
+                    className="sm:col-span-2 bg-stone-900 hover:bg-stone-800 text-amber-400 py-3.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all border border-amber-500/30 cursor-pointer"
+                    id="btn-edit-order-full"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                    <span>✏️ Edit Data Undangan Lengkap (6 Langkah Pengisian)</span>
+                  </button>
+                )}
+
+                {isPaid && (
+                  <>
+                    <a
+                      href={`/${order.slug.replace(/^\//, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-amber-600 hover:bg-amber-500 text-white py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      <span>Buka Undangan Online</span>
+                    </a>
+
+                    <button
+                      onClick={() => setShareModalOpen(true)}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      <span>Salin Link Tamu WhatsApp</span>
+                    </button>
+
+                    <button
+                      onClick={handleDownloadZip}
+                      disabled={isDownloadingZip}
+                      className="sm:col-span-2 bg-white hover:bg-stone-50 border border-stone-300 text-stone-800 py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-2xs transition-all cursor-pointer"
+                      id="btn-download-zip"
+                    >
+                      <Download className="w-4 h-4 text-amber-600" />
+                      <span>{isDownloadingZip ? 'Membuat ZIP...' : 'Download Source Code Website (.zip)'}</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
 
             {/* Rejection notice and re-upload form if REJECTED */}
-            {order.paymentStatus === 'REJECTED' && (
+            {isRejected && (
               <div className="bg-rose-50 border border-rose-200 rounded-2xl p-5 space-y-4">
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
@@ -273,14 +310,23 @@ export const OrderStatusPage: React.FC<OrderStatusPageProps> = ({
 
             {/* Detailed Order Specifications Table */}
             <div className="space-y-3">
-              <h3 className="text-xs font-bold text-stone-800 uppercase tracking-wider">
-                Rincian Pesanan
+              <h3 className="text-xs font-bold text-stone-800 uppercase tracking-wider flex items-center gap-1.5">
+                <Info className="w-3.5 h-3.5 text-amber-600" />
+                <span>Informasi Lengkap Pesanan & Undangan</span>
               </h3>
               
               <div className="bg-stone-50 rounded-2xl p-5 border border-stone-200 divide-y divide-stone-200 text-xs sm:text-sm">
                 <div className="flex justify-between py-2">
                   <span className="text-stone-500">Nomor Order</span>
                   <span className="font-mono font-bold text-stone-900">{order.id}</span>
+                </div>
+                <div className="flex justify-between py-2">
+                  <span className="text-stone-500">Status Pembayaran</span>
+                  <span className={`font-bold px-2 py-0.5 rounded-full text-[10px] ${
+                    isPaid ? 'bg-emerald-100 text-emerald-800' : isPending ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
+                  }`}>
+                    {isPaid ? 'LUNAS (PAID)' : isPending ? 'PENDING' : 'REJECTED'}
+                  </span>
                 </div>
                 <div className="flex justify-between py-2">
                   <span className="text-stone-500">Nama Pelanggan</span>
@@ -291,12 +337,28 @@ export const OrderStatusPage: React.FC<OrderStatusPageProps> = ({
                   <span className="text-stone-800">{order.whatsapp} • {order.email}</span>
                 </div>
                 <div className="flex justify-between py-2">
+                  <span className="text-stone-500">Judul Undangan</span>
+                  <span className="font-semibold text-stone-900 text-right">{d.title || '-'}</span>
+                </div>
+                {(d.eventDate || d.akadDate) && (
+                  <div className="flex justify-between py-2">
+                    <span className="text-stone-500">Tanggal Acara</span>
+                    <span className="text-stone-800">{d.eventDate || d.akadDate} ({d.startTime || d.akadTime || '09:00'})</span>
+                  </div>
+                )}
+                {d.venueName && (
+                  <div className="flex justify-between py-2">
+                    <span className="text-stone-500">Lokasi Acara</span>
+                    <span className="text-stone-800 text-right">{d.venueName}</span>
+                  </div>
+                )}
+                <div className="flex justify-between py-2">
                   <span className="text-stone-500">Alamat Slug</span>
                   <span className="font-mono text-amber-700 font-semibold">/{order.slug}</span>
                 </div>
                 <div className="flex justify-between py-2">
-                  <span className="text-stone-500">Total Harga</span>
-                  <span className="font-bold text-stone-900 font-mono">Rp5.000</span>
+                  <span className="text-stone-500">Total Biaya</span>
+                  <span className="font-bold text-stone-900 font-mono">Rp{(order.price || 5000).toLocaleString('id-ID')}</span>
                 </div>
                 <div className="flex justify-between py-2">
                   <span className="text-stone-500">Waktu Pemesanan</span>
@@ -330,7 +392,7 @@ export const OrderStatusPage: React.FC<OrderStatusPageProps> = ({
 
               <button
                 onClick={onRefresh}
-                className="inline-flex items-center gap-1.5 text-xs text-amber-700 hover:text-amber-800 font-semibold bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200"
+                className="inline-flex items-center gap-1.5 text-xs text-amber-700 hover:text-amber-800 font-semibold bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200 cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>Segarkan Status</span>
@@ -364,3 +426,4 @@ export const OrderStatusPage: React.FC<OrderStatusPageProps> = ({
     </div>
   );
 };
+

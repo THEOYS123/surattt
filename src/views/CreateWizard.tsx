@@ -35,12 +35,14 @@ import { MediaGalleryManager } from '../components/MediaGalleryManager';
 import { GiftBankManager } from '../components/GiftBankManager';
 import { LoveStoryManager } from '../components/LoveStoryManager';
 import { SpeakersManager } from '../components/SpeakersManager';
+import { RundownManager } from '../components/RundownManager';
 
 interface CreateWizardProps {
   onComplete: (newOrder: Order) => void;
   onCancel: () => void;
   initialCategoryId?: string;
   initialTemplateId?: string;
+  editingOrder?: Order | null;
   onOpenAuth?: (tab: 'login' | 'register') => void;
 }
 
@@ -49,6 +51,7 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
   onCancel,
   initialCategoryId,
   initialTemplateId,
+  editingOrder,
   onOpenAuth
 }) => {
   const categories = useMemo(() => db.getCategories().filter(c => c.isActive), []);
@@ -57,24 +60,38 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
   const settings = useMemo(() => db.getSettings(), []);
   const basePrice = settings.basePrice || 5000;
 
+  const isEditMode = Boolean(editingOrder);
+
   const [currentStep, setCurrentStep] = useState<number>(1);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(initialCategoryId || 'cat-1');
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(initialTemplateId || allTemplates[0]?.id || 'tpl-wedding-royal');
-  const [templateFilterCategory, setTemplateFilterCategory] = useState<string>('all');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(
+    editingOrder?.categoryId || initialCategoryId || 'cat-1'
+  );
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(
+    editingOrder?.templateId || initialTemplateId || allTemplates[0]?.id || 'tpl-wedding-royal'
+  );
+  const [templateFilterCategory, setTemplateFilterCategory] = useState<string>(
+    editingOrder?.categoryId || 'all'
+  );
   const [templateSearchQuery, setTemplateSearchQuery] = useState<string>('');
 
   // Customer Contact for Order (Auto fill if logged in)
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => customerAuth.getCurrentUser());
-  const [customerName, setCustomerName] = useState(() => currentUser?.name || currentUser?.username || '');
-  const [email, setEmail] = useState(() => currentUser?.email || '');
-  const [whatsapp, setWhatsapp] = useState(() => currentUser?.phone || '');
+  const [customerName, setCustomerName] = useState(() => 
+    editingOrder?.customerName || currentUser?.name || currentUser?.username || ''
+  );
+  const [email, setEmail] = useState(() => 
+    editingOrder?.email || currentUser?.email || ''
+  );
+  const [whatsapp, setWhatsapp] = useState(() => 
+    editingOrder?.whatsapp || currentUser?.phone || ''
+  );
 
   // Keep customer auth in sync
   useEffect(() => {
     const syncUser = () => {
       const active = customerAuth.getCurrentUser();
       setCurrentUser(active);
-      if (active) {
+      if (active && !editingOrder) {
         setCustomerName(prev => prev.trim() ? prev : (active.name || active.username || ''));
         setEmail(prev => prev.trim() ? prev : (active.email || ''));
         setWhatsapp(prev => prev.trim() ? prev : (active.phone || ''));
@@ -82,10 +99,10 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
     };
     window.addEventListener('surat:auth-changed', syncUser);
     return () => window.removeEventListener('surat:auth-changed', syncUser);
-  }, []);
+  }, [editingOrder]);
 
   // Slug
-  const [slug, setSlug] = useState('');
+  const [slug, setSlug] = useState(() => (editingOrder?.slug || '').replace(/^\//, ''));
 
   // Preview device mode in Step 4
   const [previewDevice, setPreviewDevice] = useState<'mobile' | 'desktop'>('mobile');
@@ -101,6 +118,10 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
 
   // Invitation Form Data - Pure manual data entry with category initial values
   const [formData, setFormData] = useState<InvitationData>(() => {
+    if (editingOrder?.invitationData) {
+      return { ...editingOrder.invitationData };
+    }
+
     if (initialCategoryId === 'cat-16') {
       return {
         title: 'Pentas Seni & Gelar Budaya 2026',
@@ -383,6 +404,39 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
     const activeUser = customerAuth.getCurrentUser();
     const matchedUser = activeUser || (email.trim() ? customerAuth.getUserByEmail(email.trim()) : null);
 
+    if (editingOrder) {
+      // Update existing order while preserving order ID, payment status, payment proof, created date, etc.
+      const updatedOrder: Order = {
+        ...editingOrder,
+        userId: editingOrder.userId || matchedUser?.id || undefined,
+        customerName: customerName.trim() || editingOrder.customerName,
+        email: email.trim() || editingOrder.email,
+        whatsapp: whatsapp.trim() || editingOrder.whatsapp,
+        categoryId: selectedCategoryId,
+        templateId: selectedTemplateId,
+        slug: slug.trim().toLowerCase(),
+        updatedAt: new Date().toISOString(),
+        invitationData: {
+          ...formData,
+          title: formData.title || (isWedding ? `Pernikahan ${formData.groomNickname || formData.groomName} & ${formData.brideNickname || formData.brideName}` : formData.title)
+        }
+      };
+
+      db.saveOrder(updatedOrder);
+
+      if (matchedUser) {
+        customerAuth.logActivity(
+          matchedUser.id,
+          matchedUser.email,
+          'Pembaruan Data Undangan',
+          `Memperbarui seluruh data dan konten undangan digital ${updatedOrder.id} (/${updatedOrder.slug}).`,
+          'Edit'
+        );
+      }
+      onComplete(updatedOrder);
+      return;
+    }
+
     const newOrder: Order = {
       id: `ORD-2026-${Math.floor(10000 + Math.random() * 90000)}`,
       userId: matchedUser?.id || undefined,
@@ -426,16 +480,23 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
         <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6 mb-8">
           <div className="flex items-center justify-between pb-6 border-b border-stone-100">
             <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-amber-600">
-                Langkah {currentStep} dari 6
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-600">
+                  Langkah {currentStep} dari 6
+                </span>
+                {isEditMode && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                    Mode Edit: {editingOrder?.id}
+                  </span>
+                )}
+              </div>
               <h1 className="text-xl font-bold text-stone-900 mt-0.5">
-                {currentStep === 1 && 'Pilih Jenis Undangan'}
-                {currentStep === 2 && 'Pilih Desain Template'}
-                {currentStep === 3 && 'Isi Data Undangan'}
+                {currentStep === 1 && (isEditMode ? 'Ganti Jenis Kategori Acara' : 'Pilih Jenis Undangan')}
+                {currentStep === 2 && (isEditMode ? 'Ganti Desain Template' : 'Pilih Desain Template')}
+                {currentStep === 3 && (isEditMode ? 'Ubah Seluruh Data Undangan' : 'Isi Data Undangan')}
                 {currentStep === 4 && 'Preview Realtime'}
-                {currentStep === 5 && 'Tentukan Alamat Slug & Kontak'}
-                {currentStep === 6 && 'Ringkasan & Siap Checkout'}
+                {currentStep === 5 && (isEditMode ? 'Sesuaikan Alamat Slug & Kontak' : 'Tentukan Alamat Slug & Kontak')}
+                {currentStep === 6 && (isEditMode ? 'Ringkasan & Simpan Perubahan' : 'Ringkasan & Siap Checkout')}
               </h1>
             </div>
             <button
@@ -1440,6 +1501,13 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
               </div>
             </div>
 
+            {/* SUSUNAN ACARA / RUNDOWN KEGIATAN (SEMUA KATEGORI BISA DIISI MANUAL) */}
+            <RundownManager
+              categorySlug={activeCategory.slug}
+              rundown={formData.rundown || []}
+              onChange={(items) => setFormData({ ...formData, rundown: items, rundownItems: items })}
+            />
+
             {/* PENGATURAN FOTO & GALERI */}
             <MediaGalleryManager
               categorySlug={activeCategory.slug}
@@ -1662,23 +1730,28 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
               <button
                 type="button"
                 onClick={() => setCurrentStep(6)}
-                disabled={!slug || !customerName || !email || !whatsapp || db.isSlugTaken(slug)}
+                disabled={!slug || !customerName || !email || !whatsapp || db.isSlugTaken(slug, editingOrder?.id)}
                 className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-semibold text-sm px-6 py-3 rounded-xl flex items-center gap-2 shadow-sm transition-all"
               >
-                <span>Lanjut ke Ringkasan Checkout</span>
+                <span>{isEditMode ? 'Lanjut ke Simpan Perubahan' : 'Lanjut ke Ringkasan Checkout'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </div>
         )}
 
-        {/* STEP 6: RINGKASAN & CHECKOUT */}
+        {/* STEP 6: RINGKASAN & CHECKOUT / SIMPAN PERUBAHAN */}
         {currentStep === 6 && (
           <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6 sm:p-8 space-y-6 animate-in fade-in">
             <div>
-              <h2 className="text-lg font-bold text-stone-900">Ringkasan Order</h2>
+              <h2 className="text-lg font-bold text-stone-900">
+                {isEditMode ? 'Ringkasan Pembaruan Undangan' : 'Ringkasan Order'}
+              </h2>
               <p className="text-xs text-stone-500 mt-1">
-                Periksa kembali data undangan sebelum melakukan pembayaran Rp{basePrice.toLocaleString('id-ID')} melalui QRIS.
+                {isEditMode
+                  ? 'Periksa kembali seluruh perubahan data undangan Anda sebelum menyimpan pembaruan.'
+                  : `Periksa kembali data undangan sebelum melakukan pembayaran Rp${basePrice.toLocaleString('id-ID')} melalui QRIS.`
+                }
               </p>
             </div>
 
@@ -1705,19 +1778,48 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
               </div>
               <div className="flex justify-between items-center pt-2">
                 <div>
-                  <span className="text-stone-800 font-bold block text-sm">TOTAL PEMBAYARAN</span>
-                  <span className="text-[11px] text-stone-500">Biaya satu kali, tanpa langganan</span>
+                  <span className="text-stone-800 font-bold block text-sm">
+                    {isEditMode ? 'STATUS PESANAN' : 'TOTAL PEMBAYARAN'}
+                  </span>
+                  <span className="text-[11px] text-stone-500">
+                    {isEditMode 
+                      ? (editingOrder?.paymentStatus === 'PAID' ? 'Pembayaran Terkonfirmasi (LUNAS)' : 'Menunggu Verifikasi Pembayaran')
+                      : 'Biaya satu kali, tanpa langganan'
+                    }
+                  </span>
                 </div>
-                <span className="text-2xl font-black text-amber-600 font-mono">Rp{basePrice.toLocaleString('id-ID')}</span>
+                {isEditMode ? (
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                    editingOrder?.paymentStatus === 'PAID'
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      : 'bg-amber-100 text-amber-800 border border-amber-300'
+                  }`}>
+                    {editingOrder?.paymentStatus === 'PAID' ? 'LUNAS (AKTIF)' : 'PENDING'}
+                  </span>
+                ) : (
+                  <span className="text-2xl font-black text-amber-600 font-mono">Rp{basePrice.toLocaleString('id-ID')}</span>
+                )}
               </div>
             </div>
 
-            <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-xs text-amber-900 space-y-1">
-              <p className="font-bold">Informasi Pembayaran:</p>
-              <p>
-                Setelah menekan tombol di bawah, Anda akan diarahkan ke halaman QRIS Nasional untuk scan pembayaran Rp{basePrice.toLocaleString('id-ID')} dan mengunggah bukti transfer.
-              </p>
-            </div>
+            {isEditMode ? (
+              <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-xs text-emerald-900 space-y-1">
+                <p className="font-bold flex items-center gap-1.5">
+                  <Check className="w-4 h-4 text-emerald-600" />
+                  <span>Mode Pembaruan Aktif:</span>
+                </p>
+                <p>
+                  Semua perubahan pada konten, galeri, susunan acara, maupun teks undangan akan langsung diperbarui ke tautan undangan <strong className="font-mono">/{slug}</strong> tanpa biaya tambahan.
+                </p>
+              </div>
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-xs text-amber-900 space-y-1">
+                <p className="font-bold">Informasi Pembayaran:</p>
+                <p>
+                  Setelah menekan tombol di bawah, Anda akan diarahkan ke halaman QRIS Nasional untuk scan pembayaran Rp{basePrice.toLocaleString('id-ID')} dan mengunggah bukti transfer.
+                </p>
+              </div>
+            )}
 
             <div className="pt-4 border-t border-stone-100 flex items-center justify-between">
               <button
@@ -1735,7 +1837,7 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
                 id="btn-confirm-checkout"
               >
                 <Sparkles className="w-4 h-4" />
-                <span>Bayar Sekarang (Rp5.000)</span>
+                <span>{isEditMode ? '✓ Simpan Pembaruan Undangan' : 'Bayar Sekarang (Rp5.000)'}</span>
               </button>
             </div>
           </div>

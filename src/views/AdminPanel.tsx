@@ -29,31 +29,51 @@ import {
   Bot,
   Send,
   Bell,
-  Zap
+  Zap,
+  MessageSquare,
+  ShieldAlert,
+  Megaphone,
+  Ban
 } from 'lucide-react';
 import { Order, Template, Category, SiteSettings, AdminUser } from '../types';
 import { db } from '../services/storage';
 import { authService } from '../services/auth';
 import { generateInvitationZip } from '../services/zipGenerator';
 import { telegramService } from '../services/telegramService';
+import { AdminChatManager } from '../components/AdminChatManager';
+import { AdminBannedUsersManager } from '../components/AdminBannedUsersManager';
+import { AdminAnnouncementsManager } from '../components/AdminAnnouncementsManager';
 
 interface AdminPanelProps {
   onLogout: () => void;
   onViewInvitation: (slug: string) => void;
+  onEditOrder?: (order: Order) => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   onLogout,
-  onViewInvitation
+  onViewInvitation,
+  onEditOrder
 }) => {
-  // Tabs: 'analytics' | 'orders' | 'templates' | 'categories' | 'qris' | 'customers' | 'settings'
-  const [activeTab, setActiveTab] = useState<'analytics' | 'orders' | 'templates' | 'categories' | 'qris' | 'customers' | 'settings'>('orders');
+  // Tabs: 'analytics' | 'orders' | 'chats' | 'banned' | 'announcements' | 'templates' | 'categories' | 'qris' | 'customers' | 'settings'
+  const [activeTab, setActiveTab] = useState<'analytics' | 'orders' | 'chats' | 'banned' | 'announcements' | 'templates' | 'categories' | 'qris' | 'customers' | 'settings'>('orders');
 
   // Real data from storage
   const [orders, setOrders] = useState<Order[]>(db.getOrders());
   const [templates, setTemplates] = useState<Template[]>(db.getTemplates());
   const [categories, setCategories] = useState<Category[]>(db.getCategories());
   const [settings, setSettings] = useState<SiteSettings>(db.getSettings());
+
+  // Chat & Ban counts
+  const [unreadChatCount, setUnreadChatCount] = useState<number>(() => {
+    return db.getConversations().reduce((acc, c) => acc + (c.unreadAdminCount || 0), 0);
+  });
+  const [totalNudgeCount, setTotalNudgeCount] = useState<number>(() => {
+    return db.getConversations().reduce((acc, c) => acc + (c.nudgeCount || 0), 0);
+  });
+  const [bannedCount, setBannedCount] = useState<number>(() => {
+    return db.getBannedUsers().length;
+  });
 
   // Search & Filter state for Orders
   const [orderSearch, setOrderSearch] = useState('');
@@ -121,7 +141,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setTemplates(db.getTemplates());
     setCategories(db.getCategories());
     setSettings(db.getSettings());
+    const convos = db.getConversations();
+    setUnreadChatCount(convos.reduce((acc, c) => acc + (c.unreadAdminCount || 0), 0));
+    setTotalNudgeCount(convos.reduce((acc, c) => acc + (c.nudgeCount || 0), 0));
+    setBannedCount(db.getBannedUsers().length);
   };
+
+  React.useEffect(() => {
+    const handleChatUpdate = () => {
+      const convos = db.getConversations();
+      setUnreadChatCount(convos.reduce((acc, c) => acc + (c.unreadAdminCount || 0), 0));
+      setTotalNudgeCount(convos.reduce((acc, c) => acc + (c.nudgeCount || 0), 0));
+    };
+    const handleBanUpdate = () => {
+      setBannedCount(db.getBannedUsers().length);
+    };
+
+    window.addEventListener('surat:chat-updated', handleChatUpdate);
+    window.addEventListener('surat:chat-message-sent', handleChatUpdate);
+    window.addEventListener('surat:banned-updated', handleBanUpdate);
+
+    return () => {
+      window.removeEventListener('surat:chat-updated', handleChatUpdate);
+      window.removeEventListener('surat:chat-message-sent', handleChatUpdate);
+      window.removeEventListener('surat:banned-updated', handleBanUpdate);
+    };
+  }, []);
 
   // Filtered Orders
   const filteredOrders = useMemo(() => {
@@ -441,6 +486,60 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </button>
 
             <button
+              onClick={() => { setActiveTab('chats'); setSelectedOrder(null); }}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                activeTab === 'chats' ? 'bg-amber-500 text-stone-950 shadow-sm' : 'text-stone-400 hover:text-white hover:bg-stone-800'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <MessageSquare className="w-4 h-4" />
+                <span>Live Chat Pelanggan</span>
+              </div>
+              <div className="flex items-center gap-1">
+                {totalNudgeCount > 0 && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-400 text-stone-950 flex items-center gap-0.5" title="Ada permintaan percepat respon">
+                    <Zap className="w-3 h-3" />
+                    <span>{totalNudgeCount}</span>
+                  </span>
+                )}
+                {unreadChatCount > 0 && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500 text-white">
+                    {unreadChatCount}
+                  </span>
+                )}
+              </div>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('announcements'); setSelectedOrder(null); }}
+              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                activeTab === 'announcements' ? 'bg-amber-500 text-stone-950 shadow-sm' : 'text-stone-400 hover:text-white hover:bg-stone-800'
+              }`}
+            >
+              <Megaphone className="w-4 h-4" />
+              <span>Broadcast Pengumuman</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('banned'); setSelectedOrder(null); }}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                activeTab === 'banned' ? 'bg-amber-500 text-stone-950 shadow-sm' : 'text-stone-400 hover:text-white hover:bg-stone-800'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <ShieldAlert className="w-4 h-4" />
+                <span>Pengguna Diblokir</span>
+              </div>
+              {bannedCount > 0 && (
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  activeTab === 'banned' ? 'bg-stone-950 text-rose-400' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                }`}>
+                  {bannedCount}
+                </span>
+              )}
+            </button>
+
+            <button
               onClick={() => { setActiveTab('analytics'); setSelectedOrder(null); }}
               className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                 activeTab === 'analytics' ? 'bg-amber-500 text-stone-950 shadow-sm' : 'text-stone-400 hover:text-white hover:bg-stone-800'
@@ -676,7 +775,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </h2>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {onEditOrder && (
+                    <button
+                      onClick={() => onEditOrder(selectedOrder)}
+                      className="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs"
+                      title="Edit seluruh data undangan sama persis seperti wizard pembuatan"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Edit Data Undangan</span>
+                    </button>
+                  )}
+
                   <button
                     onClick={() => sendWhatsAppNotification(selectedOrder)}
                     className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs"
@@ -1894,6 +2004,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
             </form>
           </div>
+        )}
+
+        {/* TAB: LIVE CHAT PELANGGAN */}
+        {activeTab === 'chats' && (
+          <AdminChatManager
+            onViewOrder={(orderId) => {
+              const target = orders.find(o => o.id === orderId);
+              if (target) {
+                setSelectedOrder(target);
+                setActiveTab('orders');
+              }
+            }}
+          />
+        )}
+
+        {/* TAB: PENGGUNA DIBLOKIR */}
+        {activeTab === 'banned' && (
+          <AdminBannedUsersManager />
+        )}
+
+        {/* TAB: BROADCAST PENGUMUMAN */}
+        {activeTab === 'announcements' && (
+          <AdminAnnouncementsManager />
         )}
 
       </main>

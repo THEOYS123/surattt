@@ -28,14 +28,17 @@ import {
   UserCheck,
   ShoppingBag,
   RefreshCw,
-  Zap
+  Zap,
+  Edit3,
+  Info
 } from 'lucide-react';
 import { UserAccount, Order, UserActivityLog, SiteSettings } from '../types';
 import { customerAuth } from '../services/customerAuth';
 import { db } from '../services/storage';
-import { generateStandaloneWebsiteZip } from '../services/zipGenerator';
+import { generateInvitationZip } from '../services/zipGenerator';
 import { ShareModal } from '../components/ShareModal';
 import { ExpediteOrderModal } from '../components/ExpediteOrderModal';
+import { OrderDetailModal } from '../components/OrderDetailModal';
 import { copyToClipboard } from '../utils/clipboard';
 
 interface CustomerDashboardProps {
@@ -47,6 +50,7 @@ interface CustomerDashboardProps {
   onViewOrder: (orderId: string) => void;
   onViewInvitation: (slug: string) => void;
   onUpdateUser: (updatedUser: UserAccount) => void;
+  onEditOrder?: (order: Order) => void;
 }
 
 export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
@@ -57,7 +61,8 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   onStartCreate,
   onViewOrder,
   onViewInvitation,
-  onUpdateUser
+  onUpdateUser,
+  onEditOrder
 }) => {
   const [activeTab, setActiveTab] = useState<'orders' | 'activities' | 'settings'>('orders');
   
@@ -67,9 +72,10 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const [filterStatus, setFilterStatus] = useState<'all' | 'PAID' | 'PENDING' | 'REJECTED'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Share & Expedite modal
+  // Share, Expedite, & Detail modal
   const [selectedShareOrder, setSelectedShareOrder] = useState<Order | null>(null);
   const [selectedExpediteOrder, setSelectedExpediteOrder] = useState<Order | null>(null);
+  const [selectedDetailOrder, setSelectedDetailOrder] = useState<Order | null>(null);
   
   // Profile Form state
   const [name, setName] = useState(user.name || user.username);
@@ -168,7 +174,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const handleDownloadZip = async (order: Order) => {
     try {
       setDownloadingOrderId(order.id);
-      await generateStandaloneWebsiteZip(order);
+      await generateInvitationZip(order);
       customerAuth.logActivity(
         user.id,
         user.email,
@@ -481,6 +487,27 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
 
                       {/* Action Buttons */}
                       <div className="flex items-center gap-2 flex-wrap pt-1">
+                        {/* Tombol Edit Undangan Lengkap (Tersedia untuk semua status order) */}
+                        {onEditOrder && (
+                          <button
+                            onClick={() => onEditOrder(order)}
+                            className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors"
+                            title="Edit data undangan lengkap (6 langkah)"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>Edit Undangan</span>
+                          </button>
+                        )}
+
+                        {/* Tombol Informasi Pesanan Modal */}
+                        <button
+                          onClick={() => setSelectedDetailOrder(order)}
+                          className="px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-semibold text-xs flex items-center gap-1.5 transition-colors border border-stone-200"
+                        >
+                          <Info className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Informasi Pesanan</span>
+                        </button>
+
                         {isPaid ? (
                           <>
                             <button
@@ -502,28 +529,20 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                             <button
                               onClick={() => handleDownloadZip(order)}
                               disabled={downloadingOrderId === order.id}
-                              className="px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-semibold text-xs flex items-center gap-1.5 transition-colors border border-stone-300"
+                              className="px-3 py-2 rounded-xl bg-stone-50 hover:bg-stone-100 text-stone-800 font-semibold text-xs flex items-center gap-1.5 transition-colors border border-stone-300"
                             >
                               <Download className="w-3.5 h-3.5 text-amber-600" />
                               <span>{downloadingOrderId === order.id ? 'Membuat ZIP...' : 'Download ZIP'}</span>
-                            </button>
-
-                            <button
-                              onClick={() => onViewOrder(order.id)}
-                              className="px-3 py-2 rounded-xl text-stone-600 hover:text-stone-900 font-semibold text-xs flex items-center gap-1 ml-auto"
-                            >
-                              <FileText className="w-3.5 h-3.5" />
-                              <span>Detail Invoice</span>
                             </button>
                           </>
                         ) : (
                           <div className="flex items-center gap-2 flex-wrap">
                             <button
                               onClick={() => onViewOrder(order.id)}
-                              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors"
+                              className="px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors"
                             >
-                              <Clock className="w-3.5 h-3.5" />
-                              <span>{isPending ? 'Cek Status & Bukti Transfer' : 'Upload Ulang Bukti Bayar'}</span>
+                              <Clock className="w-3.5 h-3.5 text-amber-400" />
+                              <span>{isPending ? 'Cek Bukti & Status' : 'Upload Ulang Bukti'}</span>
                             </button>
 
                             {isPending && (
@@ -757,6 +776,25 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
             );
             setOrders(myOrders);
           }}
+        />
+      )}
+
+      {/* Order Detail Information Modal */}
+      {selectedDetailOrder && (
+        <OrderDetailModal
+          order={selectedDetailOrder}
+          settings={settings}
+          isOpen={!!selectedDetailOrder}
+          onClose={() => setSelectedDetailOrder(null)}
+          onEditOrder={(ord) => {
+            if (onEditOrder) {
+              onEditOrder(ord);
+            }
+          }}
+          onOpenShare={(ord) => setSelectedShareOrder(ord)}
+          onDownloadZip={(ord) => handleDownloadZip(ord)}
+          onExpediteOrder={(ord) => setSelectedExpediteOrder(ord)}
+          onViewInvitation={(slug) => onViewInvitation(slug)}
         />
       )}
     </div>

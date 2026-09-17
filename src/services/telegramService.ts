@@ -198,6 +198,47 @@ ${customerNote ? `💬 <b>Pesan dari Pemesan:</b>\n<i>"${escapeHtml(customerNote
 `;
 
     return this.sendMessage(text.trim());
+  },
+
+  /**
+   * Notification triggered when a user clicks "⚡ Ingatkan / Percepat Balasan Admin" in Live Chat
+   */
+  async notifyChatNudge(
+    userName: string,
+    userEmail: string,
+    lastMessage: string,
+    orderId?: string
+  ): Promise<TelegramSendResult> {
+    const settings = db.getSettings();
+    if (!settings.telegramEnabled) {
+      return { success: false, message: 'Bot Telegram belum diaktifkan di admin panel.' };
+    }
+
+    const domainUrl = typeof window !== 'undefined' ? window.location.origin : 'https://suratttt.netlify.app';
+    const adminPanelLink = `${domainUrl}/admin`;
+
+    const now = new Date().toLocaleString('id-ID', {
+      timeZone: 'Asia/Jakarta',
+      dateStyle: 'medium',
+      timeStyle: 'medium'
+    });
+
+    const text = `
+<b>🚨 PING / NUDGE LIVE CHAT DARI PELANGGAN!</b>
+━━━━━━━━━━━━━━━━━━━━
+⚡ <b>Status:</b> Pelanggan meminta balasan segera (Slow-Response Alert)
+👤 <b>Pengguna:</b> <b>${escapeHtml(userName || 'Pengguna Website')}</b>
+✉️ <b>Email:</b> ${escapeHtml(userEmail || '-')}
+${orderId ? `📋 <b>ID Pesanan Terkait:</b> <code>${escapeHtml(orderId)}</code>\n` : ''}
+💬 <b>Pesan Terakhir:</b>
+<i>"${escapeHtml(lastMessage || 'Halo admin, tolong balas chat saya segera.')}"</i>
+
+⏰ <b>Waktu Ping:</b> ${now} WIB
+━━━━━━━━━━━━━━━━━━━━
+👉 <a href="${adminPanelLink}">Buka Live Chat di Admin Panel</a>
+`;
+
+    return this.sendMessage(text.trim());
   }
 };
 

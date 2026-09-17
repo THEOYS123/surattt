@@ -7,7 +7,11 @@ import {
   MediaItem,
   SiteSettings,
   ActivityLog,
-  RSVPItem
+  RSVPItem,
+  ChatMessage,
+  ChatConversation,
+  BannedUser,
+  Announcement
 } from '../types';
 import { hashPassword } from './auth';
 import { COMPREHENSIVE_TEMPLATES } from '../data/templatesData';
@@ -23,6 +27,10 @@ const STORAGE_KEYS = {
   SETTINGS: 'surat_db_settings',
   LOGS: 'surat_db_logs',
   RSVPS: 'surat_db_rsvps',
+  CHATS: 'surat_db_chats',
+  CONVERSATIONS: 'surat_db_conversations',
+  BANNED_USERS: 'surat_db_banned_users',
+  ANNOUNCEMENTS: 'surat_db_announcements',
   INITIALIZED: 'surat_db_initialized_v2'
 };
 
@@ -528,15 +536,34 @@ export const db = {
     }
   },
   getOrderById(id: string): Order | undefined {
+    if (!id) return undefined;
     return this.getOrders().find(o => o.id === id);
   },
   getOrderBySlug(slug: string): Order | undefined {
-    const cleanSlug = slug.replace(/^\//, '').toLowerCase().trim();
-    return this.getOrders().find(o => o.slug.toLowerCase().trim() === cleanSlug);
+    if (!slug) return undefined;
+    try {
+      const decoded = decodeURIComponent(slug).split('?')[0].replace(/^\//, '').toLowerCase().trim();
+      return this.getOrders().find(o => {
+        const orderSlug = (o.slug || '').replace(/^\//, '').toLowerCase().trim();
+        return orderSlug === decoded;
+      });
+    } catch {
+      const raw = slug.split('?')[0].replace(/^\//, '').toLowerCase().trim();
+      return this.getOrders().find(o => (o.slug || '').replace(/^\//, '').toLowerCase().trim() === raw);
+    }
   },
   isSlugTaken(slug: string, excludeOrderId?: string): boolean {
-    const cleanSlug = slug.replace(/^\//, '').toLowerCase().trim();
-    return this.getOrders().some(o => o.slug.toLowerCase().trim() === cleanSlug && o.id !== excludeOrderId);
+    if (!slug) return false;
+    try {
+      const decoded = decodeURIComponent(slug).split('?')[0].replace(/^\//, '').toLowerCase().trim();
+      return this.getOrders().some(o => {
+        const orderSlug = (o.slug || '').replace(/^\//, '').toLowerCase().trim();
+        return orderSlug === decoded && o.id !== excludeOrderId;
+      });
+    } catch {
+      const raw = slug.split('?')[0].replace(/^\//, '').toLowerCase().trim();
+      return this.getOrders().some(o => (o.slug || '').replace(/^\//, '').toLowerCase().trim() === raw && o.id !== excludeOrderId);
+    }
   },
   saveOrder(order: Order): void {
     const list = this.getOrders();
@@ -671,5 +698,214 @@ export const db = {
     });
     // Keep max 200 logs
     localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(list.slice(0, 200)));
+  },
+
+  // ==========================================
+  // LIVE CHAT & CONVERSATIONS
+  // ==========================================
+  getConversations(): ChatConversation[] {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.CONVERSATIONS);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  },
+  getConversationById(id: string): ChatConversation | undefined {
+    return this.getConversations().find(c => c.id === id);
+  },
+  getConversationByEmail(email: string): ChatConversation | undefined {
+    if (!email) return undefined;
+    return this.getConversations().find(c => c.userEmail.toLowerCase() === email.toLowerCase());
+  },
+  saveConversation(convo: ChatConversation): void {
+    const list = this.getConversations();
+    const idx = list.findIndex(c => c.id === convo.id);
+    if (idx >= 0) {
+      list[idx] = convo;
+    } else {
+      list.unshift(convo);
+    }
+    localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(list));
+    window.dispatchEvent(new CustomEvent('surat:chat-updated', { detail: { conversationId: convo.id } }));
+  },
+  deleteConversation(id: string): void {
+    const list = this.getConversations().filter(c => c.id !== id);
+    localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(list));
+    // Also delete messages
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.CHATS);
+      if (raw) {
+        const allMsgs: ChatMessage[] = JSON.parse(raw);
+        const filtered = allMsgs.filter(m => m.conversationId !== id);
+        localStorage.setItem(STORAGE_KEYS.CHATS, JSON.stringify(filtered));
+      }
+    } catch {
+      // safe
+    }
+    window.dispatchEvent(new CustomEvent('surat:chat-updated', { detail: { conversationId: id } }));
+  },
+  getMessages(conversationId?: string): ChatMessage[] {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.CHATS);
+      const all: ChatMessage[] = raw ? JSON.parse(raw) : [];
+      if (conversationId) {
+        return all.filter(m => m.conversationId === conversationId);
+      }
+      return all;
+    } catch {
+      return [];
+    }
+  },
+  sendMessage(msg: ChatMessage): void {
+    const all = this.getMessages();
+    all.push(msg);
+    localStorage.setItem(STORAGE_KEYS.CHATS, JSON.stringify(all));
+
+    // Update conversation last message & unread count
+    const convo = this.getConversationById(msg.conversationId);
+    if (convo) {
+      convo.lastMessage = msg.text;
+      convo.lastMessageAt = msg.timestamp;
+      if (msg.senderRole === 'user') {
+        convo.unreadAdminCount = (convo.unreadAdminCount || 0) + 1;
+        if (msg.isNudge) {
+          convo.lastNudgeAt = msg.timestamp;
+          convo.nudgeCount = (convo.nudgeCount || 0) + 1;
+        }
+      } else {
+        convo.unreadUserCount = (convo.unreadUserCount || 0) + 1;
+      }
+      this.saveConversation(convo);
+    }
+
+    window.dispatchEvent(new CustomEvent('surat:chat-message-sent', { detail: msg }));
+  },
+  markConversationRead(conversationId: string, role: 'admin' | 'user'): void {
+    const convo = this.getConversationById(conversationId);
+    if (!convo) return;
+    if (role === 'admin') {
+      convo.unreadAdminCount = 0;
+    } else {
+      convo.unreadUserCount = 0;
+    }
+    this.saveConversation(convo);
+  },
+
+  // ==========================================
+  // BANNED USERS MANAGEMENT
+  // ==========================================
+  getBannedUsers(): BannedUser[] {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.BANNED_USERS);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  },
+  banUser(banned: BannedUser): void {
+    const list = this.getBannedUsers();
+    const idx = list.findIndex(b => b.identifier.toLowerCase() === banned.identifier.toLowerCase());
+    if (idx >= 0) {
+      list[idx] = banned;
+    } else {
+      list.unshift(banned);
+    }
+    localStorage.setItem(STORAGE_KEYS.BANNED_USERS, JSON.stringify(list));
+
+    // Also mark conversation as banned if exists
+    const convos = this.getConversations();
+    convos.forEach(c => {
+      if (
+        c.userEmail.toLowerCase() === banned.identifier.toLowerCase() ||
+        c.userId === banned.identifier ||
+        c.id === banned.identifier
+      ) {
+        c.isBanned = true;
+        c.bannedReason = banned.reason;
+        c.bannedAt = banned.bannedAt;
+      }
+    });
+    localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(convos));
+    window.dispatchEvent(new CustomEvent('surat:banned-updated'));
+  },
+  unbanUser(identifier: string): void {
+    const list = this.getBannedUsers().filter(
+      b => b.identifier.toLowerCase() !== identifier.toLowerCase()
+    );
+    localStorage.setItem(STORAGE_KEYS.BANNED_USERS, JSON.stringify(list));
+
+    // Unmark conversation
+    const convos = this.getConversations();
+    convos.forEach(c => {
+      if (
+        c.userEmail.toLowerCase() === identifier.toLowerCase() ||
+        c.userId === identifier ||
+        c.id === identifier
+      ) {
+        c.isBanned = false;
+        c.bannedReason = undefined;
+        c.bannedAt = undefined;
+      }
+    });
+    localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(convos));
+    window.dispatchEvent(new CustomEvent('surat:banned-updated'));
+  },
+  isUserBanned(identifier: string): { isBanned: boolean; reason?: string } {
+    if (!identifier) return { isBanned: false };
+    const list = this.getBannedUsers();
+    const found = list.find(b => b.identifier.toLowerCase() === identifier.toLowerCase());
+    if (found) {
+      return { isBanned: true, reason: found.reason };
+    }
+    return { isBanned: false };
+  },
+
+  // ==========================================
+  // ANNOUNCEMENTS & BROADCASTS
+  // ==========================================
+  getAnnouncements(): Announcement[] {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.ANNOUNCEMENTS);
+      if (raw) return JSON.parse(raw);
+      // Default initial announcements
+      const initial: Announcement[] = [
+        {
+          id: 'anc-welcome',
+          title: '🎉 Selamat Datang di SURAT Platform!',
+          content: 'Kini Anda dapat membuat undangan digital modern hanya Rp5.000 dengan fitur Susunan Acara lengkap, Live Chat Admin, dan file download mandiri.',
+          type: 'promo',
+          isActive: true,
+          priority: 'high',
+          targetAudience: 'all',
+          actionText: 'Buat Undangan',
+          actionUrl: '/create',
+          createdAt: new Date().toISOString()
+        }
+      ];
+      localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(initial));
+      return initial;
+    } catch {
+      return [];
+    }
+  },
+  getActiveAnnouncements(): Announcement[] {
+    return this.getAnnouncements().filter(a => a.isActive);
+  },
+  saveAnnouncement(announcement: Announcement): void {
+    const list = this.getAnnouncements();
+    const idx = list.findIndex(a => a.id === announcement.id);
+    if (idx >= 0) {
+      list[idx] = announcement;
+    } else {
+      list.unshift(announcement);
+    }
+    localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(list));
+    window.dispatchEvent(new CustomEvent('surat:announcements-updated'));
+  },
+  deleteAnnouncement(id: string): void {
+    const list = this.getAnnouncements().filter(a => a.id !== id);
+    localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(list));
+    window.dispatchEvent(new CustomEvent('surat:announcements-updated'));
   }
 };

@@ -149,6 +149,16 @@ export interface StoryTimelineItem {
   description: string;
 }
 
+export interface RundownItem {
+  id?: string;
+  time: string; // e.g. "08:00 - 09:30 WIB"
+  title: string; // e.g. "Akad Nikah / Temu Manten"
+  description?: string; // e.g. "Prosesi ijab kabul dan penyerahan mahar"
+  location?: string; // e.g. "Masjid Agung / Ballroom"
+  performer?: string; // e.g. "Ustadz / Grup Akustik"
+  iconName?: string;
+}
+
 export interface InvitationData {
   // Common / General
   title: string;
@@ -169,6 +179,10 @@ export interface InvitationData {
   additionalNotes?: string;
   liveStreamUrl?: string;
   familyGreeting?: string;
+
+  // Susunan Acara / Rundown Kegiatan (Bisa diisi manual untuk semua jenis acara)
+  rundown?: RundownItem[];
+  rundownItems?: RundownItem[];
 
   // Wedding specifics
   groomName?: string;
@@ -215,7 +229,7 @@ export interface InvitationData {
   committeeHead?: string;
   academicYear?: string;
   ticketPrice?: string;
-  agendaRundown?: { time: string; activity: string; performer?: string }[];
+  agendaRundown?: { time: string; activity?: string; title?: string; performer?: string; description?: string }[];
   graduationDegree?: string;
   graduationFaculty?: string;
   alumniGeneration?: string;
@@ -307,4 +321,63 @@ export interface RSVPItem {
   guestCount: number;
   wishes: string;
   createdAt: string;
+}
+
+// Live Chat & Support Types
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  senderId?: string; // user email/id or admin email/id
+  senderName: string;
+  senderRole: 'user' | 'admin';
+  text: string;
+  timestamp: string;
+  isNudge?: boolean;
+}
+
+export interface ChatConversation {
+  id: string;
+  userId?: string;
+  userEmail: string;
+  userName: string;
+  userPhone?: string;
+  orderId?: string;
+  orderSlug?: string;
+  lastMessage: string;
+  lastMessageAt: string;
+  unreadAdminCount: number;
+  unreadUserCount: number;
+  status?: string;
+  isBanned?: boolean;
+  bannedReason?: string;
+  bannedAt?: string;
+  lastNudgeAt?: string;
+  nudgeCount?: number;
+  createdAt: string;
+}
+
+export interface BannedUser {
+  id: string;
+  identifier: string; // email, userId, or phone
+  name?: string;
+  userName?: string;
+  reason: string;
+  spamCount?: number;
+  bannedAt: string;
+  bannedBy: string;
+}
+
+// Broadcast & Announcements Types
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  type: 'info' | 'promo' | 'warning' | 'success' | 'update';
+  isActive: boolean;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  targetAudience?: 'all' | 'customers';
+  actionText?: string;
+  actionUrl?: string;
+  createdAt: string;
+  expiresAt?: string;
 }

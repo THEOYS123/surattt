@@ -14,6 +14,8 @@ import { AdminPanel } from './views/AdminPanel';
 import { AdminLogin } from './views/AdminLogin';
 import { CustomerDashboard } from './views/CustomerDashboard';
 import { CustomerAuthModal } from './components/CustomerAuthModal';
+import { AnnouncementBanner } from './components/AnnouncementBanner';
+import { LiveChatWidget } from './components/LiveChatWidget';
 import { AlertCircle, ArrowLeft, Home, Sparkles } from 'lucide-react';
 
 export default function App() {
@@ -23,6 +25,8 @@ export default function App() {
 
   // Current working order during creation/checkout flow
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
+  // Current order being edited with full wizard flow
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
 
   // Category or Template pre-selected when starting wizard from landing page
   const [wizardPreselect, setWizardPreselect] = useState<{ categoryId?: string; templateId?: string }>({});
@@ -101,6 +105,7 @@ export default function App() {
       navigate('/');
     } else if (view === 'create') {
       setWizardPreselect({});
+      setEditingOrder(null);
       navigate('/create');
     } else if (view === 'order-status' && param) {
       navigate(`/status/${param}`);
@@ -116,6 +121,11 @@ export default function App() {
     } else {
       navigate('/');
     }
+  };
+
+  const handleStartEditOrder = (order: Order) => {
+    setEditingOrder(order);
+    navigate('/create');
   };
 
   const openAuth = (tab: 'login' | 'register' = 'login', message?: string) => {
@@ -159,6 +169,7 @@ export default function App() {
           navigate('/');
         }}
         onViewInvitation={(slug) => navigate(`/${slug.replace(/^\//, '')}`)}
+        onEditOrder={handleStartEditOrder}
       />
     );
   }
@@ -168,6 +179,7 @@ export default function App() {
     const defaultTab = currentPath.includes('register') || currentPath.includes('daftar') ? 'register' : 'login';
     return (
       <div className="min-h-screen flex flex-col justify-between bg-stone-100">
+        <AnnouncementBanner onNavigate={navigate} />
         <Navbar
           settings={settings}
           currentView="landing"
@@ -202,6 +214,7 @@ export default function App() {
           onNavigate={handleNavigateView}
           onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); navigate('/create'); }}
         />
+        <LiveChatWidget currentUser={customerUser} />
       </div>
     );
   }
@@ -211,6 +224,7 @@ export default function App() {
     if (!customerUser) {
       return (
         <div className="min-h-screen flex flex-col justify-between bg-stone-100">
+          <AnnouncementBanner onNavigate={navigate} />
           <Navbar
             settings={settings}
             currentView="landing"
@@ -244,12 +258,14 @@ export default function App() {
             onNavigate={handleNavigateView}
             onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); navigate('/create'); }}
           />
+          <LiveChatWidget currentUser={customerUser} />
         </div>
       );
     }
 
     return (
       <div className="min-h-screen flex flex-col justify-between bg-stone-100">
+        <AnnouncementBanner onNavigate={navigate} />
         <Navbar
           settings={settings}
           currentView="my-account"
@@ -278,18 +294,21 @@ export default function App() {
           onNavigateHome={() => navigate('/')}
           onStartCreate={() => {
             setWizardPreselect({});
+            setEditingOrder(null);
             navigate('/create');
           }}
           onViewOrder={(orderId) => navigate(`/status/${orderId}`)}
           onViewInvitation={(slug) => navigate(`/${slug}`)}
           onUpdateUser={(updated) => setCustomerUser(updated)}
+          onEditOrder={handleStartEditOrder}
         />
         <Footer
           settings={settings}
           categories={categories}
           onNavigate={handleNavigateView}
-          onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); navigate('/create'); }}
+          onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); setEditingOrder(null); navigate('/create'); }}
         />
+        <LiveChatWidget currentUser={customerUser} />
       </div>
     );
   }
@@ -304,6 +323,7 @@ export default function App() {
     if (foundOrder) {
       return (
         <div className="min-h-screen flex flex-col justify-between bg-stone-100">
+          <AnnouncementBanner onNavigate={navigate} />
           <Navbar
             settings={settings}
             currentView="order-status"
@@ -317,6 +337,7 @@ export default function App() {
             onNavigateHome={() => navigate('/')}
             onStartCreate={() => {
               setWizardPreselect({});
+              setEditingOrder(null);
               navigate('/create');
             }}
             onOpenAuth={(tab) => openAuth(tab)}
@@ -329,12 +350,13 @@ export default function App() {
               if (fresh) setActiveOrder(fresh);
             }}
             onGoToHome={() => navigate('/')}
+            onEditOrder={handleStartEditOrder}
           />
           <Footer
             settings={settings}
             categories={categories}
             onNavigate={handleNavigateView}
-            onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); navigate('/create'); }}
+            onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); setEditingOrder(null); navigate('/create'); }}
           />
 
           <CustomerAuthModal
@@ -347,6 +369,7 @@ export default function App() {
               setAuthModal(prev => ({ ...prev, isOpen: false }));
             }}
           />
+          <LiveChatWidget currentUser={customerUser} currentOrderId={foundOrder.id} />
         </div>
       );
     }
@@ -356,6 +379,7 @@ export default function App() {
   if (currentPath === '/create') {
     return (
       <div className="min-h-screen flex flex-col justify-between bg-stone-100">
+        <AnnouncementBanner onNavigate={navigate} />
         <Navbar
           settings={settings}
           currentView="create"
@@ -369,19 +393,35 @@ export default function App() {
           onNavigateHome={() => navigate('/')}
           onStartCreate={() => {
             setWizardPreselect({});
+            setEditingOrder(null);
             navigate('/create');
           }}
           onOpenAuth={(tab) => openAuth(tab)}
         />
         <CreateWizard
+          editingOrder={editingOrder}
           initialCategoryId={wizardPreselect.categoryId}
           initialTemplateId={wizardPreselect.templateId}
           onOpenAuth={(tab) => openAuth(tab)}
-          onComplete={(newOrder) => {
-            setActiveOrder(newOrder);
-            navigate('/checkout');
+          onComplete={(savedOrder) => {
+            if (editingOrder) {
+              setEditingOrder(null);
+              setActiveOrder(savedOrder);
+              navigate(`/status/${savedOrder.id}`);
+            } else {
+              setActiveOrder(savedOrder);
+              navigate('/checkout');
+            }
           }}
-          onCancel={() => navigate('/')}
+          onCancel={() => {
+            if (editingOrder) {
+              const prevId = editingOrder.id;
+              setEditingOrder(null);
+              navigate(`/status/${prevId}`);
+            } else {
+              navigate('/');
+            }
+          }}
         />
         <Footer
           settings={settings}
@@ -400,6 +440,7 @@ export default function App() {
             setAuthModal(prev => ({ ...prev, isOpen: false }));
           }}
         />
+        <LiveChatWidget currentUser={customerUser} currentOrderId={editingOrder?.id} />
       </div>
     );
   }
@@ -408,6 +449,7 @@ export default function App() {
   if (currentPath === '/checkout' && activeOrder) {
     return (
       <div className="min-h-screen flex flex-col justify-between bg-stone-100">
+        <AnnouncementBanner onNavigate={navigate} />
         <Navbar
           settings={settings}
           currentView="checkout"
@@ -450,6 +492,7 @@ export default function App() {
             setAuthModal(prev => ({ ...prev, isOpen: false }));
           }}
         />
+        <LiveChatWidget currentUser={customerUser} currentOrderId={activeOrder.id} />
       </div>
     );
   }
@@ -534,6 +577,7 @@ export default function App() {
   // Route: Default Landing Page (/)
   return (
     <div className="min-h-screen flex flex-col justify-between bg-stone-50">
+      <AnnouncementBanner onNavigate={navigate} />
       <Navbar
         settings={settings}
         currentView="landing"
@@ -585,6 +629,7 @@ export default function App() {
           navigate('/my-account');
         }}
       />
+      <LiveChatWidget currentUser={customerUser} />
     </div>
   );
 }

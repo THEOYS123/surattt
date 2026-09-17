@@ -395,14 +395,30 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
 
   const handleCreateCheckout = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // STRICT CHECK: User MUST be logged in to order any invitation
+    const activeUser = customerAuth.getCurrentUser();
+    if (!activeUser) {
+      if (onOpenAuth) {
+        onOpenAuth('login');
+      } else {
+        window.dispatchEvent(new CustomEvent('surat:open-auth-modal', {
+          detail: {
+            tab: 'login',
+            message: 'Persyaratan Pemesanan: Anda diwajibkan masuk (login) atau mendaftar akun terlebih dahulu untuk memesan undangan digital.'
+          }
+        }));
+      }
+      return;
+    }
+
     if (!slug.trim()) {
       autoGenerateSlug();
       return;
     }
 
     // Refresh current user and link order to account
-    const activeUser = customerAuth.getCurrentUser();
-    const matchedUser = activeUser || (email.trim() ? customerAuth.getUserByEmail(email.trim()) : null);
+    const matchedUser = activeUser;
 
     if (editingOrder) {
       // Update existing order while preserving order ID, payment status, payment proof, created date, etc.
@@ -1818,6 +1834,23 @@ export const CreateWizard: React.FC<CreateWizardProps> = ({
                 <p>
                   Setelah menekan tombol di bawah, Anda akan diarahkan ke halaman QRIS Nasional untuk scan pembayaran Rp{basePrice.toLocaleString('id-ID')} dan mengunggah bukti transfer.
                 </p>
+              </div>
+            )}
+
+            {/* Login requirement notification if unauthenticated */}
+            {!currentUser && (
+              <div className="p-3.5 bg-amber-50/90 border border-amber-300 rounded-xl flex items-center justify-between gap-3 text-xs text-amber-950">
+                <div className="flex items-center gap-2">
+                  <LogIn className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span><strong>Persyaratan Pemesanan:</strong> Anda wajib masuk (login) ke akun SURAT untuk memesan undangan.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onOpenAuth ? onOpenAuth('login') : window.dispatchEvent(new CustomEvent('surat:open-auth-modal', { detail: { tab: 'login', message: 'Persyaratan Pemesanan: Silakan masuk ke akun Anda.' } }))}
+                  className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-bold text-xs shrink-0 shadow-xs cursor-pointer"
+                >
+                  Masuk / Daftar
+                </button>
               </div>
             )}
 

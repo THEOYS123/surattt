@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   MessageSquare,
   X,
@@ -17,9 +17,12 @@ import {
   Lock,
   LogIn,
   UserPlus,
-  ShieldCheck
+  ShieldCheck,
+  GripVertical,
+  RotateCcw,
+  Move
 } from 'lucide-react';
-import { ChatMessage, ChatConversation, UserAccount } from '../types';
+import { ChatMessage, ChatConversation, UserAccount, SiteSettings } from '../types';
 import { db } from '../services/storage';
 import { customerAuth } from '../services/customerAuth';
 import { telegramService } from '../services/telegramService';
@@ -27,11 +30,17 @@ import { securityService } from '../services/security';
 
 interface LiveChatWidgetProps {
   currentOrderId?: string;
+  currentUser?: UserAccount | null;
 }
 
-export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }) => {
+interface PositionCoords {
+  x: number;
+  y: number;
+}
+
+export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId, currentUser: propUser }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => customerAuth.getCurrentUser());
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => propUser || customerAuth.getCurrentUser());
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
   const [conversation, setConversation] = useState<ChatConversation | null>(null);
@@ -39,6 +48,214 @@ export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }
   const [inputMessage, setInputMessage] = useState('');
   const [isBanned, setIsBanned] = useState(false);
   const [banReason, setBanReason] = useState('');
+
+  // Site Settings for widget positioning & customization
+  const [settings, setSettings] = useState<SiteSettings>(() => db.getSettings());
+
+  // Draggable button positioning state
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [buttonPos, setButtonPos] = useState<PositionCoords | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [hasMovedFar, setHasMovedFar] = useState(false);
+  const [hasCustomDraggedPos, setHasCustomDraggedPos] = useState(false);
+
+  // Compute position from admin settings
+  const computeInitialPosition = useCallback((st: SiteSettings): PositionCoords => {
+    if (typeof window === 'undefined') return { x: 100, y: 100 };
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    const btnW = buttonRef.current?.offsetWidth || 210;
+    const btnH = buttonRef.current?.offsetHeight || 50;
+
+    const offsetX = Math.max(8, Number(st.chatWidgetOffsetX ?? 24));
+    const offsetY = Math.max(8, Number(st.chatWidgetOffsetY ?? 24));
+
+    let x = winW - btnW - offsetX;
+    let y = winH - btnH - offsetY;
+
+    const preset = st.chatWidgetPosition || 'bottom-right';
+
+    switch (preset) {
+      case 'bottom-left':
+        x = offsetX;
+        y = winH - btnH - offsetY;
+        break;
+      case 'top-right':
+        x = winW - btnW - offsetX;
+        y = offsetY;
+        break;
+      case 'top-left':
+        x = offsetX;
+        y = offsetY;
+        break;
+      case 'custom':
+        x = typeof st.chatWidgetCustomX === 'number' ? st.chatWidgetCustomX : winW - btnW - offsetX;
+        y = typeof st.chatWidgetCustomY === 'number' ? st.chatWidgetCustomY : winH - btnH - offsetY;
+        break;
+      case 'bottom-right':
+      default:
+        x = winW - btnW - offsetX;
+        y = winH - btnH - offsetY;
+        break;
+    }
+
+    // Clamp inside viewport
+    const clampedX = Math.max(8, Math.min(winW - btnW - 8, x));
+    const clampedY = Math.max(8, Math.min(winH - btnH - 8, y));
+
+    return { x: clampedX, y: clampedY };
+  }, []);
+
+  // Initialize or re-evaluate position
+  useEffect(() => {
+    const handleSettingsUpdate = (e?: Event) => {
+      const updated = db.getSettings();
+      setSettings(updated);
+      // If user hasn't actively dragged it in this session, adhere to new admin settings
+      try {
+        const savedSession = sessionStorage.getItem('surat_chat_widget_user_pos');
+        if (!savedSession) {
+          setButtonPos(computeInitialPosition(updated));
+          setHasCustomDraggedPos(false);
+        }
+      } catch {
+        setButtonPos(computeInitialPosition(updated));
+      }
+    };
+
+    // Load from session storage if dragged previously
+    try {
+      const savedSession = sessionStorage.getItem('surat_chat_widget_user_pos');
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+          // Verify it's within viewport bounds
+          const btnW = 210;
+          const btnH = 50;
+          const clampedX = Math.max(8, Math.min(window.innerWidth - btnW - 8, parsed.x));
+          const clampedY = Math.max(8, Math.min(window.innerHeight - btnH - 8, parsed.y));
+          setButtonPos({ x: clampedX, y: clampedY });
+          setHasCustomDraggedPos(true);
+        } else {
+          setButtonPos(computeInitialPosition(settings));
+        }
+      } else {
+        setButtonPos(computeInitialPosition(settings));
+      }
+    } catch {
+      setButtonPos(computeInitialPosition(settings));
+    }
+
+    window.addEventListener('surat:settings-updated', handleSettingsUpdate);
+    const handleResize = () => {
+      setButtonPos(prev => {
+        if (!prev) return computeInitialPosition(settings);
+        const btnW = buttonRef.current?.offsetWidth || 210;
+        const btnH = buttonRef.current?.offsetHeight || 50;
+        return {
+          x: Math.max(8, Math.min(window.innerWidth - btnW - 8, prev.x)),
+          y: Math.max(8, Math.min(window.innerHeight - btnH - 8, prev.y))
+        };
+      });
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('surat:settings-updated', handleSettingsUpdate);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [computeInitialPosition, settings]);
+
+  // Reset to default admin position
+  const handleResetPosition = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      sessionStorage.removeItem('surat_chat_widget_user_pos');
+    } catch {}
+    const fresh = computeInitialPosition(settings);
+    setButtonPos(fresh);
+    setHasCustomDraggedPos(false);
+  };
+
+  // Drag logic handling (Mouse & Touch)
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    initialX: number;
+    initialY: number;
+  }>({ startX: 0, startY: 0, initialX: 0, initialY: 0 });
+
+  const startDrag = (clientX: number, clientY: number) => {
+    if (settings.chatWidgetDraggable === false) return;
+    const current = buttonPos || computeInitialPosition(settings);
+    dragRef.current = {
+      startX: clientX,
+      startY: clientY,
+      initialX: current.x,
+      initialY: current.y
+    };
+    setIsDragging(true);
+    setHasMovedFar(false);
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const onPointerMove = (clientX: number, clientY: number) => {
+      const deltaX = clientX - dragRef.current.startX;
+      const deltaY = clientY - dragRef.current.startY;
+      const dist = Math.hypot(deltaX, deltaY);
+      if (dist > 6) {
+        setHasMovedFar(true);
+      }
+
+      const btnW = buttonRef.current?.offsetWidth || 210;
+      const btnH = buttonRef.current?.offsetHeight || 50;
+      const newX = Math.max(8, Math.min(window.innerWidth - btnW - 8, dragRef.current.initialX + deltaX));
+      const newY = Math.max(8, Math.min(window.innerHeight - btnH - 8, dragRef.current.initialY + deltaY));
+
+      setButtonPos({ x: newX, y: newY });
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      e.preventDefault();
+      onPointerMove(e.clientX, e.clientY);
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length > 0) {
+        e.preventDefault();
+        onPointerMove(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    };
+
+    const onPointerEnd = () => {
+      setIsDragging(false);
+      if (hasMovedFar) {
+        setHasCustomDraggedPos(true);
+        if (buttonPos) {
+          try {
+            sessionStorage.setItem('surat_chat_widget_user_pos', JSON.stringify(buttonPos));
+          } catch {}
+        }
+      }
+    };
+
+    const onMouseUp = () => onPointerEnd();
+    const onTouchEnd = () => onPointerEnd();
+
+    window.addEventListener('mousemove', onMouseMove, { passive: false });
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd);
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [isDragging, hasMovedFar, buttonPos]);
 
   // Nudge / Expedite state
   const [nudgeCooldown, setNudgeCooldown] = useState(0);
@@ -225,40 +442,145 @@ export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }
 
   const unreadCount = conversation?.unreadUserCount || 0;
 
+  if (settings.chatWidgetEnabled === false) {
+    return null;
+  }
+
+  // Calculate modal dynamic anchor position based on current button location
+  const getModalStyle = (): React.CSSProperties => {
+    if (typeof window === 'undefined') return {};
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    
+    // On small screens, fixed at bottom-4 with responsive margins
+    if (winW < 640) {
+      return {
+        bottom: '16px',
+        left: '12px',
+        right: '12px',
+        width: 'calc(100vw - 24px)'
+      };
+    }
+
+    if (!buttonPos) {
+      return {
+        bottom: '16px',
+        right: '16px'
+      };
+    }
+
+    const modalW = 384;
+    const modalH = 560;
+
+    const style: React.CSSProperties = {};
+
+    // Horizontal placement
+    if (buttonPos.x < winW / 2) {
+      style.left = `${Math.max(12, Math.min(winW - modalW - 12, buttonPos.x))}px`;
+    } else {
+      style.right = `${Math.max(12, Math.min(winW - modalW - 12, winW - buttonPos.x - (buttonRef.current?.offsetWidth || 210)))}px`;
+    }
+
+    // Vertical placement
+    if (buttonPos.y < winH / 2) {
+      // Place downwards if space permits, or clamped
+      style.top = `${Math.max(12, Math.min(winH - modalH - 12, buttonPos.y + 56))}px`;
+    } else {
+      // Place upwards from button
+      style.bottom = `${Math.max(12, Math.min(winH - modalH - 12, winH - buttonPos.y))}px`;
+    }
+
+    return style;
+  };
+
   return (
     <>
-      {/* Floating Chat Button */}
+      {/* Floating Chat Button (Draggable & Admin Configurable) */}
       {!isOpen && (
-        <button
-          type="button"
-          onClick={() => {
-            setIsOpen(true);
-            if (conversation && unreadCount > 0) {
-              db.markConversationRead(conversation.id, 'user');
-            }
+        <div
+          style={{
+            position: 'fixed',
+            left: buttonPos ? `${buttonPos.x}px` : undefined,
+            top: buttonPos ? `${buttonPos.y}px` : undefined,
+            bottom: !buttonPos ? '24px' : undefined,
+            right: !buttonPos ? '24px' : undefined,
+            zIndex: 40,
+            touchAction: 'none'
           }}
-          className="fixed bottom-6 right-6 z-40 bg-stone-900 hover:bg-stone-800 text-white p-3.5 sm:px-4 sm:py-3.5 rounded-full shadow-xl flex items-center gap-2.5 transition-all transform hover:scale-105 group border border-stone-700/60 cursor-pointer"
-          id="btn-live-chat-toggle"
-          aria-label="Buka Live Chat Support"
+          className="flex items-center gap-1.5"
         >
-          <div className="relative flex items-center justify-center">
-            <MessageSquare className="w-5 h-5 text-amber-400 group-hover:rotate-6 transition-transform" />
-            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-stone-900 animate-pulse" />
-          </div>
-          <span className="text-xs font-bold tracking-wide hidden sm:inline">
-            Tanya Admin / Live Chat
-          </span>
-          {unreadCount > 0 && (
-            <span className="bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-bounce">
-              {unreadCount}
+          <button
+            ref={buttonRef}
+            type="button"
+            onMouseDown={(e) => {
+              if (e.button !== 0) return;
+              startDrag(e.clientX, e.clientY);
+            }}
+            onTouchStart={(e) => {
+              if (e.touches.length > 0) {
+                startDrag(e.touches[0].clientX, e.touches[0].clientY);
+              }
+            }}
+            onClick={(e) => {
+              if (hasMovedFar) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+              }
+              setIsOpen(true);
+              if (conversation && unreadCount > 0) {
+                db.markConversationRead(conversation.id, 'user');
+              }
+            }}
+            className={`bg-stone-900 hover:bg-stone-800 text-white p-3.5 sm:px-4 sm:py-3.5 rounded-full shadow-2xl flex items-center gap-2.5 transition-all select-none border border-stone-700/80 group ${
+              isDragging ? 'cursor-grabbing scale-105 shadow-amber-500/20 ring-2 ring-amber-500' : 'cursor-grab hover:scale-105'
+            }`}
+            id="btn-live-chat-toggle"
+            aria-label="Buka Live Chat Support"
+            title={settings.chatWidgetDraggable !== false ? "Klik untuk chat • Tahan dan geser untuk memindahkan posisi" : "Klik untuk chat"}
+          >
+            {settings.chatWidgetDraggable !== false && (
+              <div
+                className="text-stone-400 group-hover:text-stone-200 transition-colors -ml-1 cursor-grab active:cursor-grabbing"
+                title="Geser posisi"
+              >
+                <GripVertical className="w-3.5 h-3.5" />
+              </div>
+            )}
+            <div className="relative flex items-center justify-center">
+              <MessageSquare className="w-5 h-5 text-amber-400 group-hover:rotate-6 transition-transform" />
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-stone-900 animate-pulse" />
+            </div>
+            <span className="text-xs font-bold tracking-wide hidden sm:inline whitespace-nowrap">
+              {settings.chatWidgetLabel || 'Tanya Admin / Live Chat'}
             </span>
+            {unreadCount > 0 && (
+              <span className="bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-bounce">
+                {unreadCount}
+              </span>
+            )}
+          </button>
+
+          {/* Reset position button if user moved it away from default */}
+          {hasCustomDraggedPos && (
+            <button
+              type="button"
+              onClick={handleResetPosition}
+              title="Reset ke posisi awal admin"
+              className="w-7 h-7 rounded-full bg-stone-900/90 hover:bg-stone-800 text-stone-400 hover:text-amber-400 border border-stone-700 flex items-center justify-center shadow-lg transition-all cursor-pointer"
+            >
+              <RotateCcw className="w-3 h-3" />
+            </button>
           )}
-        </button>
+        </div>
       )}
 
       {/* CHAT WINDOW MODAL */}
       {isOpen && (
-        <div className="fixed bottom-4 right-4 z-50 w-[calc(100vw-2rem)] sm:w-96 max-h-[85vh] h-[560px] bg-white rounded-2xl shadow-2xl border border-stone-200 flex flex-col overflow-hidden animate-in slide-in-from-bottom-5">
+        <div
+          style={getModalStyle()}
+          className="fixed z-50 w-[calc(100vw-1.5rem)] sm:w-96 max-h-[85vh] h-[560px] bg-white rounded-2xl shadow-2xl border border-stone-200 flex flex-col overflow-hidden animate-in slide-in-from-bottom-3"
+        >
           {/* Header */}
           <div className="bg-stone-900 text-white px-4 py-3.5 flex items-center justify-between border-b border-stone-800">
             <div className="flex items-center gap-2.5">

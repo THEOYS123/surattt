@@ -104,7 +104,17 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   telegramChatId: '',
   telegramEnabled: false,
   telegramNotifyOnOrder: true,
-  telegramNotifyOnReminder: true
+  telegramNotifyOnReminder: true,
+
+  // Customer Support Live Chat Floating Widget Defaults
+  chatWidgetEnabled: true,
+  chatWidgetPosition: 'bottom-right',
+  chatWidgetOffsetX: 24,
+  chatWidgetOffsetY: 24,
+  chatWidgetCustomX: 24,
+  chatWidgetCustomY: 24,
+  chatWidgetLabel: 'Tanya Admin / Live Chat',
+  chatWidgetDraggable: true
 };
 
 export const INITIAL_CATEGORIES: Category[] = [
@@ -449,6 +459,7 @@ export const db = {
     const current = this.getSettings();
     const updated = { ...current, ...settings };
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+    window.dispatchEvent(new CustomEvent('surat:settings-updated', { detail: updated }));
     return updated;
   },
   saveSettings(settings: SiteSettings): SiteSettings {

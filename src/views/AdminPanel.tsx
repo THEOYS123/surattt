@@ -35,7 +35,9 @@ import {
   ShieldCheck,
   Megaphone,
   Ban,
-  Shield
+  Shield,
+  Move,
+  RotateCcw
 } from 'lucide-react';
 import { Order, Template, Category, SiteSettings, AdminUser } from '../types';
 import { db } from '../services/storage';
@@ -100,7 +102,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [settingsSaveSuccess, setSettingsSaveSuccess] = useState(false);
 
   // Settings sub-tab state
-  const [settingsSubTab, setSettingsSubTab] = useState<'identity' | 'hero' | 'banner' | 'features' | 'faqs' | 'contact' | 'qris' | 'telegram'>('identity');
+  const [settingsSubTab, setSettingsSubTab] = useState<'identity' | 'hero' | 'banner' | 'features' | 'faqs' | 'contact' | 'qris' | 'telegram' | 'chat_widget'>('identity');
 
   // Telegram Bot Test State
   const [telegramTestStatus, setTelegramTestStatus] = useState<{
@@ -1324,7 +1326,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 { id: 'faqs', label: '5. Kelola FAQ' },
                 { id: 'contact', label: '6. Kontak & CS' },
                 { id: 'qris', label: '7. QRIS Pembayaran' },
-                { id: 'telegram', label: '8. Bot Telegram (Laporan Otomatis)' }
+                { id: 'telegram', label: '8. Bot Telegram (Laporan Otomatis)' },
+                { id: 'chat_widget', label: '9. Tombol Obrolan CS (Posisi & Tampilan)' }
               ].map((sub) => (
                 <button
                   key={sub.id}
@@ -1996,6 +1999,316 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         Klik tombol <strong>Uji Coba Sekarang</strong> di atas, lalu klik <strong>Simpan Semua Pengaturan Website</strong> di bawah.
                       </li>
                     </ol>
+                  </div>
+                </div>
+              )}
+
+              {/* SUBTAB: TOMBOL OBROLAN CS (POSISI & TAMPILAN) */}
+              {settingsSubTab === 'chat_widget' && (
+                <div className="space-y-6 animate-in fade-in-50">
+                  <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 rounded-2xl p-4.5 flex items-start gap-3.5">
+                    <div className="w-9 h-9 rounded-xl bg-amber-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Move className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-stone-900">
+                        Kustomisasi Tombol Obrolan Customer Support SURAT
+                      </h4>
+                      <p className="text-[11px] text-stone-600 mt-0.5 leading-relaxed">
+                        Atur posisi awalan tombol obrolan di layar pengunjung (sudut layar & jarak pixel), ubah teks label, dan aktifkan fitur interaktif drag & drop agar pengunjung dapat menggeser tombol dengan leluasa.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Status Aktif / Sembunyikan */}
+                  <div className="p-4 bg-stone-50 rounded-2xl border border-stone-200 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-stone-900 block">
+                        Tampilkan Tombol Obrolan Mengambang (Floating Chat)
+                      </span>
+                      <span className="text-[11px] text-stone-500 block mt-0.5">
+                        Jika dimatikan, tombol obrolan akan disembunyikan sepenuhnya dari seluruh halaman website.
+                      </span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settingsForm.chatWidgetEnabled ?? true}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, chatWidgetEnabled: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-stone-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Preset Posisi Awalan */}
+                  <div>
+                    <label className="block text-xs font-bold text-stone-900 mb-2">
+                      Posisi Awalan Default di Layar
+                    </label>
+                    <p className="text-[11px] text-stone-500 mb-3">
+                      Pilih sudut layar di mana tombol obrolan akan pertama kali muncul saat halaman dimuat.
+                    </p>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                      {[
+                        { id: 'bottom-right', label: 'Bawah Kanan', desc: 'Standar / Rekomendasi', icon: '↘' },
+                        { id: 'bottom-left', label: 'Bawah Kiri', desc: 'Sisi Kiri Bawah', icon: '↙' },
+                        { id: 'top-right', label: 'Atas Kanan', desc: 'Sisi Kanan Atas', icon: '↗' },
+                        { id: 'top-left', label: 'Atas Kiri', desc: 'Sisi Kiri Atas', icon: '↖' },
+                        { id: 'custom', label: 'Kustom Koordinat', desc: 'Bebas Pixel X & Y', icon: '⚙' }
+                      ].map((preset) => {
+                        const isSelected = (settingsForm.chatWidgetPosition || 'bottom-right') === preset.id;
+                        return (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => setSettingsForm({ ...settingsForm, chatWidgetPosition: preset.id as any })}
+                            className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                              isSelected
+                                ? 'border-amber-600 bg-amber-50/70 ring-2 ring-amber-500/20'
+                                : 'border-stone-200 bg-white hover:border-stone-300 hover:bg-stone-50'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-base font-bold text-amber-600">{preset.icon}</span>
+                              {isSelected && (
+                                <span className="w-2 h-2 rounded-full bg-amber-600" />
+                              )}
+                            </div>
+                            <div className="text-xs font-bold text-stone-900">{preset.label}</div>
+                            <div className="text-[10px] text-stone-500 leading-tight mt-0.5">{preset.desc}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Offset Jarak Pixel */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-stone-50 rounded-2xl border border-stone-200">
+                    <div>
+                      <label className="block text-xs font-bold text-stone-800 mb-1">
+                        Jarak Horizontal (Offset X): {settingsForm.chatWidgetOffsetX ?? 24}px
+                      </label>
+                      <span className="text-[10px] text-stone-500 block mb-2">
+                        Jarak tombol dari tepi kiri / kanan layar.
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="range"
+                          min="8"
+                          max="160"
+                          step="4"
+                          value={settingsForm.chatWidgetOffsetX ?? 24}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, chatWidgetOffsetX: Number(e.target.value) })}
+                          className="flex-1 accent-amber-600 cursor-pointer"
+                        />
+                        <input
+                          type="number"
+                          min="8"
+                          max="300"
+                          value={settingsForm.chatWidgetOffsetX ?? 24}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, chatWidgetOffsetX: Number(e.target.value) })}
+                          className="w-16 px-2 py-1.5 bg-white border border-stone-300 rounded-lg text-xs text-center font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-stone-800 mb-1">
+                        Jarak Vertikal (Offset Y): {settingsForm.chatWidgetOffsetY ?? 24}px
+                      </label>
+                      <span className="text-[10px] text-stone-500 block mb-2">
+                        Jarak tombol dari tepi atas / bawah layar.
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="range"
+                          min="8"
+                          max="160"
+                          step="4"
+                          value={settingsForm.chatWidgetOffsetY ?? 24}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, chatWidgetOffsetY: Number(e.target.value) })}
+                          className="flex-1 accent-amber-600 cursor-pointer"
+                        />
+                        <input
+                          type="number"
+                          min="8"
+                          max="300"
+                          value={settingsForm.chatWidgetOffsetY ?? 24}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, chatWidgetOffsetY: Number(e.target.value) })}
+                          className="w-16 px-2 py-1.5 bg-white border border-stone-300 rounded-lg text-xs text-center font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    {settingsForm.chatWidgetPosition === 'custom' && (
+                      <div className="sm:col-span-2 pt-3 border-t border-stone-200 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-stone-800 mb-1">
+                            Koordinat Kustom X (Pixel dari Kiri)
+                          </label>
+                          <input
+                            type="number"
+                            placeholder="Contoh: 50"
+                            value={settingsForm.chatWidgetCustomX ?? 24}
+                            onChange={(e) => setSettingsForm({ ...settingsForm, chatWidgetCustomX: Number(e.target.value) })}
+                            className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-stone-800 mb-1">
+                            Koordinat Kustom Y (Pixel dari Atas)
+                          </label>
+                          <input
+                            type="number"
+                            placeholder="Contoh: 100"
+                            value={settingsForm.chatWidgetCustomY ?? 24}
+                            onChange={(e) => setSettingsForm({ ...settingsForm, chatWidgetCustomY: Number(e.target.value) })}
+                            className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl text-xs"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Teks Label Tombol */}
+                  <div>
+                    <label className="block text-xs font-bold text-stone-900 mb-1">
+                      Teks Label Tombol Obrolan
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Tanya Admin / Live Chat"
+                      value={settingsForm.chatWidgetLabel || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, chatWidgetLabel: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-300 rounded-xl text-xs font-medium"
+                    />
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <span className="text-[10px] text-stone-500 self-center">Rekomendasi cepat:</span>
+                      {['Tanya Admin / Live Chat', 'Customer Support SURAT', 'Hubungi Admin SURAT', 'Bantuan & Live Chat'].map((sug) => (
+                        <button
+                          key={sug}
+                          type="button"
+                          onClick={() => setSettingsForm({ ...settingsForm, chatWidgetLabel: sug })}
+                          className="px-2.5 py-1 rounded-lg text-[10px] bg-stone-100 hover:bg-stone-200 text-stone-700 cursor-pointer transition-colors"
+                        >
+                          {sug}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Izin Pengguna Menggeser (Draggable) */}
+                  <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-200/70 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-amber-950 block">
+                        Izinkan Pengguna Menggeser Tombol (Drag & Drop Interaktif)
+                      </span>
+                      <span className="text-[11px] text-stone-600 block mt-0.5">
+                        Jika diaktifkan, pengunjung dapat mengklik dan menarik tombol obrolan ke mana saja di layar mereka jika menghalangi konten.
+                      </span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settingsForm.chatWidgetDraggable ?? true}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, chatWidgetDraggable: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-stone-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                    </label>
+                  </div>
+
+                  {/* PRATINJAU LANGSUNG (LIVE MINIATURE SCREEN PREVIEW) */}
+                  <div className="p-5 bg-stone-900 text-white rounded-2xl space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold block text-white flex items-center gap-1.5">
+                          <Eye className="w-4 h-4 text-amber-400" />
+                          Pratinjau Langsung Posisi Tombol di Layar
+                        </span>
+                        <span className="text-[11px] text-stone-400 block">
+                          Simulasi tampilan posisi tombol obrolan di layar pengunjung secara real-time.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSettingsForm({
+                            ...settingsForm,
+                            chatWidgetPosition: 'bottom-right',
+                            chatWidgetOffsetX: 24,
+                            chatWidgetOffsetY: 24,
+                            chatWidgetLabel: 'Tanya Admin / Live Chat',
+                            chatWidgetDraggable: true,
+                            chatWidgetEnabled: true
+                          });
+                        }}
+                        className="text-[10px] font-bold text-stone-400 hover:text-amber-400 flex items-center gap-1 cursor-pointer transition-colors"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        Reset ke Standar
+                      </button>
+                    </div>
+
+                    {/* Miniature Browser Simulation Window */}
+                    <div className="w-full h-64 bg-stone-800/90 rounded-xl border border-stone-700 relative overflow-hidden flex flex-col select-none">
+                      {/* Browser address bar */}
+                      <div className="h-6 bg-stone-900 border-b border-stone-700/60 flex items-center px-3 gap-1.5 shrink-0">
+                        <div className="w-2 h-2 rounded-full bg-rose-500/80" />
+                        <div className="w-2 h-2 rounded-full bg-amber-500/80" />
+                        <div className="w-2 h-2 rounded-full bg-emerald-500/80" />
+                        <span className="text-[9px] font-mono text-stone-400 ml-2">https://surat.id</span>
+                      </div>
+
+                      {/* Webpage wireframe content */}
+                      <div className="p-4 flex-1 flex flex-col justify-between opacity-30 pointer-events-none">
+                        <div className="space-y-2">
+                          <div className="h-3 w-32 bg-stone-500 rounded-md" />
+                          <div className="h-2 w-48 bg-stone-600 rounded-md" />
+                          <div className="h-2 w-40 bg-stone-600 rounded-md" />
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="h-10 bg-stone-700 rounded-lg" />
+                          <div className="h-10 bg-stone-700 rounded-lg" />
+                          <div className="h-10 bg-stone-700 rounded-lg" />
+                        </div>
+                      </div>
+
+                      {/* The Floating Simulated Button */}
+                      {settingsForm.chatWidgetEnabled !== false && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            ...(settingsForm.chatWidgetPosition === 'bottom-left'
+                              ? { bottom: `${Math.min(100, Math.max(8, (settingsForm.chatWidgetOffsetY ?? 24) / 2))}px`, left: `${Math.min(150, Math.max(8, (settingsForm.chatWidgetOffsetX ?? 24) / 2))}px` }
+                              : settingsForm.chatWidgetPosition === 'top-right'
+                              ? { top: `${Math.min(100, Math.max(30, ((settingsForm.chatWidgetOffsetY ?? 24) / 2) + 24))}px`, right: `${Math.min(150, Math.max(8, (settingsForm.chatWidgetOffsetX ?? 24) / 2))}px` }
+                              : settingsForm.chatWidgetPosition === 'top-left'
+                              ? { top: `${Math.min(100, Math.max(30, ((settingsForm.chatWidgetOffsetY ?? 24) / 2) + 24))}px`, left: `${Math.min(150, Math.max(8, (settingsForm.chatWidgetOffsetX ?? 24) / 2))}px` }
+                              : settingsForm.chatWidgetPosition === 'custom'
+                              ? {
+                                  top: `${Math.min(200, Math.max(30, (settingsForm.chatWidgetCustomY ?? 24) / 3))}px`,
+                                  left: `${Math.min(250, Math.max(8, (settingsForm.chatWidgetCustomX ?? 24) / 3))}px`
+                                }
+                              : { bottom: `${Math.min(100, Math.max(8, (settingsForm.chatWidgetOffsetY ?? 24) / 2))}px`, right: `${Math.min(150, Math.max(8, (settingsForm.chatWidgetOffsetX ?? 24) / 2))}px` }
+                            )
+                          }}
+                          className="flex items-center gap-1.5 transition-all duration-300"
+                        >
+                          <div className="bg-stone-950 text-white px-3 py-1.5 rounded-full shadow-lg border border-stone-600 flex items-center gap-1.5">
+                            {settingsForm.chatWidgetDraggable !== false && (
+                              <Move className="w-2.5 h-2.5 text-stone-400" />
+                            )}
+                            <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
+                            <span className="text-[10px] font-bold">
+                              {settingsForm.chatWidgetLabel || 'Tanya Admin / Live Chat'}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

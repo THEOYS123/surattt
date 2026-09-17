@@ -16,7 +16,7 @@ import { CustomerDashboard } from './views/CustomerDashboard';
 import { CustomerAuthModal } from './components/CustomerAuthModal';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { LiveChatWidget } from './components/LiveChatWidget';
-import { AlertCircle, ArrowLeft, Home, Sparkles } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Home, Sparkles, Lock, ShieldCheck, Download, Zap, LogIn, UserPlus } from 'lucide-react';
 
 export default function App() {
   // Navigation Path state synced with window.location.pathname
@@ -41,6 +41,7 @@ export default function App() {
 
   // Customer auth state
   const [customerUser, setCustomerUser] = useState<UserAccount | null>(() => customerAuth.getCurrentUser());
+  const [pendingOrderAction, setPendingOrderAction] = useState<{ categoryId?: string; templateId?: string } | null>(null);
   const [authModal, setAuthModal] = useState<{
     isOpen: boolean;
     tab: 'login' | 'register';
@@ -109,13 +110,31 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const openAuth = (tab: 'login' | 'register' = 'login', message?: string) => {
+    setAuthModal({ isOpen: true, tab, message });
+  };
+
+  // Enforce login requirement before creating or ordering any invitation
+  const handleStartCreateOrder = (categoryId?: string, templateId?: string) => {
+    const activeUser = customerUser || customerAuth.getCurrentUser();
+    if (!activeUser) {
+      setPendingOrderAction({ categoryId, templateId });
+      openAuth(
+        'login',
+        'Persyaratan Pemesanan: Anda diwajibkan masuk (login) atau mendaftar akun terlebih dahulu untuk memesan undangan digital.'
+      );
+      return;
+    }
+    setWizardPreselect({ categoryId, templateId });
+    setEditingOrder(null);
+    navigate('/create');
+  };
+
   const handleNavigateView = (view: string, param?: string) => {
     if (view === 'landing') {
       navigate('/');
     } else if (view === 'create') {
-      setWizardPreselect({});
-      setEditingOrder(null);
-      navigate('/create');
+      handleStartCreateOrder();
     } else if (view === 'order-status' && param) {
       navigate(`/status/${param}`);
     } else if (view === 'my-account' || view === 'account' || view === 'dashboard') {
@@ -133,12 +152,13 @@ export default function App() {
   };
 
   const handleStartEditOrder = (order: Order) => {
+    const activeUser = customerUser || customerAuth.getCurrentUser();
+    if (!activeUser) {
+      openAuth('login', 'Silakan masuk ke akun Anda terlebih dahulu untuk mengubah data undangan.');
+      return;
+    }
     setEditingOrder(order);
     navigate('/create');
-  };
-
-  const openAuth = (tab: 'login' | 'register' = 'login', message?: string) => {
-    setAuthModal({ isOpen: true, tab, message });
   };
 
   // Check if current route is a special system route
@@ -301,11 +321,7 @@ export default function App() {
             navigate('/');
           }}
           onNavigateHome={() => navigate('/')}
-          onStartCreate={() => {
-            setWizardPreselect({});
-            setEditingOrder(null);
-            navigate('/create');
-          }}
+          onStartCreate={() => handleStartCreateOrder()}
           onViewOrder={(orderId) => navigate(`/status/${orderId}`)}
           onViewInvitation={(slug) => navigate(`/${slug}`)}
           onUpdateUser={(updated) => setCustomerUser(updated)}
@@ -315,7 +331,7 @@ export default function App() {
           settings={settings}
           categories={categories}
           onNavigate={handleNavigateView}
-          onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); setEditingOrder(null); navigate('/create'); }}
+          onStartCreate={(catId) => handleStartCreateOrder(catId)}
         />
         <LiveChatWidget currentUser={customerUser} />
       </div>
@@ -344,11 +360,7 @@ export default function App() {
             }}
             onNavigate={handleNavigateView}
             onNavigateHome={() => navigate('/')}
-            onStartCreate={() => {
-              setWizardPreselect({});
-              setEditingOrder(null);
-              navigate('/create');
-            }}
+            onStartCreate={() => handleStartCreateOrder()}
             onOpenAuth={(tab) => openAuth(tab)}
           />
           <OrderStatusPage
@@ -386,6 +398,117 @@ export default function App() {
 
   // Route: Create Wizard
   if (currentPath === '/create') {
+    const isUserLoggedIn = Boolean(customerUser || customerAuth.getCurrentUser());
+
+    // Strict requirement: User must be logged in before creating or ordering any invitation
+    if (!isUserLoggedIn) {
+      return (
+        <div className="min-h-screen flex flex-col justify-between bg-stone-100">
+          <AnnouncementBanner onNavigate={navigate} />
+          <Navbar
+            settings={settings}
+            currentView="create"
+            currentUser={customerUser}
+            onLogoutCustomer={() => {
+              customerAuth.logout();
+              setCustomerUser(null);
+              navigate('/');
+            }}
+            onNavigate={handleNavigateView}
+            onNavigateHome={() => navigate('/')}
+            onStartCreate={() => handleStartCreateOrder()}
+            onOpenAuth={(tab) => openAuth(tab)}
+          />
+
+          <main className="flex-1 flex items-center justify-center p-4 py-12">
+            <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-stone-200 shadow-xl text-center space-y-5 animate-in fade-in zoom-in-95">
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-300 text-amber-700 flex items-center justify-center mx-auto shadow-inner">
+                <Lock className="w-8 h-8 text-amber-600" />
+              </div>
+
+              <div>
+                <span className="px-3 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase bg-amber-50 text-amber-800 border border-amber-200 inline-block mb-2">
+                  Persyaratan Wajib Pemesanan
+                </span>
+                <h2 className="text-xl font-bold font-serif-display text-stone-900">
+                  Wajib Masuk Akun Sebelum Memesan
+                </h2>
+                <p className="text-xs text-stone-600 mt-2 leading-relaxed">
+                  Untuk memesan undangan digital di SURAT, Anda diwajibkan masuk ke akun terdaftar atau membuat akun baru (gratis). Hal ini memastikan kepemilikan undangan, verifikasi pembayaran QRIS real-time, dan hak unduh file ZIP mandiri tersimpan secara aman di akun Anda.
+                </p>
+              </div>
+
+              <div className="bg-stone-50 rounded-2xl p-4 border border-stone-200 text-left space-y-2.5 text-xs text-stone-700">
+                <div className="flex items-center gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Keamanan data & privasi undangan terenkripsi</span>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <Download className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Akses unduh file ZIP website mandiri kapan saja</span>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <Zap className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Verifikasi QRIS & status pesanan instan</span>
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => openAuth('login', 'Persyaratan Pemesanan: Silakan masuk ke akun Anda.')}
+                  className="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-3.5 rounded-xl text-xs shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  id="btn-login-to-order"
+                >
+                  <LogIn className="w-4 h-4" />
+                  <span>Masuk ke Akun Saya</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openAuth('register', 'Persyaratan Pemesanan: Buat akun baru gratis.')}
+                  className="w-full bg-white hover:bg-stone-50 text-stone-800 border border-stone-300 font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  id="btn-register-to-order"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Daftar Akun Baru (Gratis)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/')}
+                  className="w-full text-xs text-stone-500 hover:text-stone-800 py-1.5 cursor-pointer font-medium"
+                >
+                  Kembali ke Beranda
+                </button>
+              </div>
+            </div>
+          </main>
+
+          <Footer
+            settings={settings}
+            categories={categories}
+            onNavigate={handleNavigateView}
+            onStartCreate={(catId) => handleStartCreateOrder(catId)}
+          />
+
+          <CustomerAuthModal
+            isOpen={authModal.isOpen}
+            initialTab={authModal.tab}
+            messageNotice={authModal.message}
+            onClose={() => setAuthModal(prev => ({ ...prev, isOpen: false }))}
+            onSuccess={(user) => {
+              setCustomerUser(user);
+              setAuthModal(prev => ({ ...prev, isOpen: false }));
+              if (pendingOrderAction) {
+                setWizardPreselect(pendingOrderAction);
+                setPendingOrderAction(null);
+              }
+            }}
+          />
+          <LiveChatWidget currentUser={customerUser} />
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen flex flex-col justify-between bg-stone-100">
         <AnnouncementBanner onNavigate={navigate} />
@@ -400,11 +523,7 @@ export default function App() {
           }}
           onNavigate={handleNavigateView}
           onNavigateHome={() => navigate('/')}
-          onStartCreate={() => {
-            setWizardPreselect({});
-            setEditingOrder(null);
-            navigate('/create');
-          }}
+          onStartCreate={() => handleStartCreateOrder()}
           onOpenAuth={(tab) => openAuth(tab)}
         />
         <CreateWizard
@@ -436,7 +555,7 @@ export default function App() {
           settings={settings}
           categories={categories}
           onNavigate={handleNavigateView}
-          onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); navigate('/create'); }}
+          onStartCreate={(catId) => handleStartCreateOrder(catId)}
         />
 
         <CustomerAuthModal
@@ -456,6 +575,80 @@ export default function App() {
 
   // Route: Checkout Page
   if (currentPath === '/checkout' && activeOrder) {
+    const isUserLoggedIn = Boolean(customerUser || customerAuth.getCurrentUser());
+    if (!isUserLoggedIn) {
+      return (
+        <div className="min-h-screen flex flex-col justify-between bg-stone-100">
+          <AnnouncementBanner onNavigate={navigate} />
+          <Navbar
+            settings={settings}
+            currentView="checkout"
+            currentUser={customerUser}
+            onLogoutCustomer={() => {
+              customerAuth.logout();
+              setCustomerUser(null);
+              navigate('/');
+            }}
+            onNavigate={handleNavigateView}
+            onNavigateHome={() => navigate('/')}
+            onStartCreate={() => handleStartCreateOrder()}
+            onOpenAuth={(tab) => openAuth(tab)}
+          />
+
+          <main className="flex-1 flex items-center justify-center p-4 py-12">
+            <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-stone-200 shadow-xl text-center space-y-5">
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-300 text-amber-700 flex items-center justify-center mx-auto shadow-inner">
+                <Lock className="w-8 h-8 text-amber-600" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold font-serif-display text-stone-900">
+                  Wajib Masuk untuk Menyelesaikan Pembayaran
+                </h2>
+                <p className="text-xs text-stone-600 mt-2">
+                  Silakan masuk atau daftar akun Anda untuk melanjutkan pembayaran pesanan {activeOrder.id}.
+                </p>
+              </div>
+              <div className="space-y-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => openAuth('login', 'Persyaratan Pemesanan: Masuk untuk checkout.')}
+                  className="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-3.5 rounded-xl text-xs shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <LogIn className="w-4 h-4" />
+                  <span>Masuk ke Akun Saya</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/create')}
+                  className="w-full text-xs text-stone-500 hover:text-stone-800 py-1.5 cursor-pointer font-medium"
+                >
+                  Kembali ke Editor
+                </button>
+              </div>
+            </div>
+          </main>
+
+          <Footer
+            settings={settings}
+            categories={categories}
+            onNavigate={handleNavigateView}
+            onStartCreate={(catId) => handleStartCreateOrder(catId)}
+          />
+          <CustomerAuthModal
+            isOpen={authModal.isOpen}
+            initialTab={authModal.tab}
+            messageNotice={authModal.message}
+            onClose={() => setAuthModal(prev => ({ ...prev, isOpen: false }))}
+            onSuccess={(user) => {
+              setCustomerUser(user);
+              setAuthModal(prev => ({ ...prev, isOpen: false }));
+            }}
+          />
+          <LiveChatWidget currentUser={customerUser} currentOrderId={activeOrder.id} />
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen flex flex-col justify-between bg-stone-100">
         <AnnouncementBanner onNavigate={navigate} />
@@ -470,10 +663,7 @@ export default function App() {
           }}
           onNavigate={handleNavigateView}
           onNavigateHome={() => navigate('/')}
-          onStartCreate={() => {
-            setWizardPreselect({});
-            navigate('/create');
-          }}
+          onStartCreate={() => handleStartCreateOrder()}
           onOpenAuth={(tab) => openAuth(tab)}
         />
         <CheckoutPage
@@ -488,7 +678,7 @@ export default function App() {
           settings={settings}
           categories={categories}
           onNavigate={handleNavigateView}
-          onStartCreate={(catId) => { setWizardPreselect({ categoryId: catId }); navigate('/create'); }}
+          onStartCreate={(catId) => handleStartCreateOrder(catId)}
         />
 
         <CustomerAuthModal
@@ -564,7 +754,7 @@ export default function App() {
           </p>
           <div className="pt-2 flex flex-col gap-2">
             <button
-              onClick={() => navigate('/create')}
+              onClick={() => handleStartCreateOrder()}
               className="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 rounded-xl text-xs shadow-md flex items-center justify-center gap-1.5"
             >
               <Sparkles className="w-4 h-4" />
@@ -598,10 +788,7 @@ export default function App() {
         }}
         onNavigate={handleNavigateView}
         onNavigateHome={() => navigate('/')}
-        onStartCreate={() => {
-          setWizardPreselect({});
-          navigate('/create');
-        }}
+        onStartCreate={() => handleStartCreateOrder()}
         onOpenAuth={(tab) => openAuth(tab)}
       />
       
@@ -609,10 +796,7 @@ export default function App() {
         categories={categories}
         templates={templates}
         settings={settings}
-        onStartCreate={(catId, tplId) => {
-          setWizardPreselect({ categoryId: catId, templateId: tplId });
-          navigate('/create');
-        }}
+        onStartCreate={(catId, tplId) => handleStartCreateOrder(catId, tplId)}
         onViewDemo={(demoSlug) => navigate(`/${demoSlug}`)}
         onNavigate={handleNavigateView}
       />
@@ -621,10 +805,7 @@ export default function App() {
         settings={settings}
         categories={categories}
         onNavigate={handleNavigateView}
-        onStartCreate={(catId) => {
-          setWizardPreselect({ categoryId: catId });
-          navigate('/create');
-        }}
+        onStartCreate={(catId) => handleStartCreateOrder(catId)}
       />
 
       <CustomerAuthModal
@@ -635,7 +816,13 @@ export default function App() {
         onSuccess={(user) => {
           setCustomerUser(user);
           setAuthModal(prev => ({ ...prev, isOpen: false }));
-          navigate('/my-account');
+          if (pendingOrderAction) {
+            setWizardPreselect(pendingOrderAction);
+            setPendingOrderAction(null);
+            navigate('/create');
+          } else {
+            navigate('/my-account');
+          }
         }}
       />
       <LiveChatWidget currentUser={customerUser} />

@@ -310,6 +310,16 @@ export interface SiteSettings {
   telegramEnabled?: boolean;
   telegramNotifyOnOrder?: boolean;
   telegramNotifyOnReminder?: boolean;
+
+  // Customer Support Live Chat Floating Widget Settings
+  chatWidgetEnabled?: boolean;
+  chatWidgetPosition?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'custom';
+  chatWidgetOffsetX?: number; // distance in px from horizontal edge (default 24)
+  chatWidgetOffsetY?: number; // distance in px from vertical edge (default 24)
+  chatWidgetCustomX?: number; // optional custom X coordinate
+  chatWidgetCustomY?: number; // optional custom Y coordinate
+  chatWidgetLabel?: string; // e.g. "Tanya Admin / Live Chat"
+  chatWidgetDraggable?: boolean; // whether users can freely drag the button on screen (default true)
 }
 
 export interface ActivityLog {

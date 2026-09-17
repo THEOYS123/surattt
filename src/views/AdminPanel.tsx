@@ -32,8 +32,10 @@ import {
   Zap,
   MessageSquare,
   ShieldAlert,
+  ShieldCheck,
   Megaphone,
-  Ban
+  Ban,
+  Shield
 } from 'lucide-react';
 import { Order, Template, Category, SiteSettings, AdminUser } from '../types';
 import { db } from '../services/storage';
@@ -43,6 +45,7 @@ import { telegramService } from '../services/telegramService';
 import { AdminChatManager } from '../components/AdminChatManager';
 import { AdminBannedUsersManager } from '../components/AdminBannedUsersManager';
 import { AdminAnnouncementsManager } from '../components/AdminAnnouncementsManager';
+import { AdminSecurityManager } from '../components/AdminSecurityManager';
 
 interface AdminPanelProps {
   onLogout: () => void;
@@ -55,8 +58,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onViewInvitation,
   onEditOrder
 }) => {
-  // Tabs: 'analytics' | 'orders' | 'chats' | 'banned' | 'announcements' | 'templates' | 'categories' | 'qris' | 'customers' | 'settings'
-  const [activeTab, setActiveTab] = useState<'analytics' | 'orders' | 'chats' | 'banned' | 'announcements' | 'templates' | 'categories' | 'qris' | 'customers' | 'settings'>('orders');
+  // Tabs: 'analytics' | 'orders' | 'chats' | 'banned' | 'security' | 'announcements' | 'templates' | 'categories' | 'qris' | 'customers' | 'settings'
+  const [activeTab, setActiveTab] = useState<'analytics' | 'orders' | 'chats' | 'banned' | 'security' | 'announcements' | 'templates' | 'categories' | 'qris' | 'customers' | 'settings'>('orders');
 
   // Real data from storage
   const [orders, setOrders] = useState<Order[]>(db.getOrders());
@@ -537,6 +540,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   {bannedCount}
                 </span>
               )}
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('security'); setSelectedOrder(null); }}
+              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                activeTab === 'security' ? 'bg-amber-500 text-stone-950 shadow-sm' : 'text-stone-400 hover:text-white hover:bg-stone-800'
+              }`}
+            >
+              <Shield className="w-4 h-4" />
+              <span>Keamanan & Audit Siber</span>
             </button>
 
             <button
@@ -2022,6 +2035,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         {/* TAB: PENGGUNA DIBLOKIR */}
         {activeTab === 'banned' && (
           <AdminBannedUsersManager />
+        )}
+
+        {/* TAB: KEAMANAN & AUDIT SIBER */}
+        {activeTab === 'security' && (
+          <AdminSecurityManager />
         )}
 
         {/* TAB: BROADCAST PENGUMUMAN */}

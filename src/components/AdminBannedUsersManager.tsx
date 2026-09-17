@@ -23,6 +23,14 @@ export const AdminBannedUsersManager: React.FC = () => {
   const [newIdentifier, setNewIdentifier] = useState('');
   const [newName, setNewName] = useState('');
   const [newReason, setNewReason] = useState('Melakukan spam tombol percepat / pengingat secara berlebihan.');
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+
+  const BAN_PRESETS = [
+    'Melakukan spam pengingat (nudge) berulang kali.',
+    'Terdeteksi upaya serangan siber, XSS, atau manipulasi parameter.',
+    'Bukti transfer palsu atau kecurangan verifikasi pembayaran.',
+    'Pelecehan / kata-kata kasar terhadap sistem dan staf.'
+  ];
 
   const loadData = () => {
     setBannedList(db.getBannedUsers());
@@ -38,11 +46,12 @@ export const AdminBannedUsersManager: React.FC = () => {
 
   const handleAddBan = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newIdentifier.trim()) return;
+    const cleanId = newIdentifier.trim().toLowerCase();
+    if (!cleanId) return;
 
     const newBan: BannedUser = {
       id: 'ban-' + Date.now(),
-      identifier: newIdentifier.trim().toLowerCase(),
+      identifier: cleanId,
       name: newName.trim() || undefined,
       reason: newReason.trim() || 'Pelanggaran ketentuan sistem dan spamming.',
       spamCount: 1,
@@ -53,16 +62,18 @@ export const AdminBannedUsersManager: React.FC = () => {
     db.banUser(newBan);
     setNewIdentifier('');
     setNewName('');
-    setNewReason('Melakukan spam tombol percepat / pengingat secara berlebihan.');
+    setNewReason(BAN_PRESETS[0]);
     setIsAddingBan(false);
+    setActionNotice(`Identitas "${cleanId}" berhasil diblokir dari sistem.`);
+    setTimeout(() => setActionNotice(null), 4000);
     loadData();
   };
 
   const handleUnban = (identifier: string) => {
-    if (confirm(`Yakin ingin membuka blokir untuk ${identifier}?`)) {
-      db.unbanUser(identifier);
-      loadData();
-    }
+    db.unbanUser(identifier);
+    setActionNotice(`Pemblokiran "${identifier}" telah dibuka. Akses kembali aktif.`);
+    setTimeout(() => setActionNotice(null), 4000);
+    loadData();
   };
 
   const filteredBans = bannedList.filter(b => {
@@ -100,6 +111,23 @@ export const AdminBannedUsersManager: React.FC = () => {
         </div>
       </div>
 
+      {/* Action Notice Alert */}
+      {actionNotice && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs font-semibold flex items-center justify-between animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{actionNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActionNotice(null)}
+            className="text-emerald-700 hover:text-emerald-950 text-[11px]"
+          >
+            Tutup
+          </button>
+        </div>
+      )}
+
       {/* MANUAL BAN FORM ACCORDION */}
       {isAddingBan && (
         <form onSubmit={handleAddBan} className="bg-rose-50/70 border border-rose-200 p-5 rounded-2xl space-y-4 animate-in fade-in">
@@ -136,9 +164,31 @@ export const AdminBannedUsersManager: React.FC = () => {
             </div>
           </div>
 
+          <div className="space-y-2">
+            <label className="block text-xs font-semibold text-stone-700">
+              Pilih Alasan Pelanggaran Cepat:
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {BAN_PRESETS.map((preset, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setNewReason(preset)}
+                  className={`text-left p-2 rounded-lg text-xs border transition cursor-pointer ${
+                    newReason === preset
+                      ? 'bg-rose-100 border-rose-300 text-rose-900 font-semibold'
+                      : 'bg-white hover:bg-stone-50 border-stone-200 text-stone-700'
+                  }`}
+                >
+                  • {preset}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-stone-700 mb-1">
-              Alasan Pemblokiran *
+              Catatan Detail Alasan Pemblokiran *
             </label>
             <input
               type="text"

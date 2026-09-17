@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Lock, KeyRound, ArrowLeft, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Lock, KeyRound, ArrowLeft, AlertCircle, ShieldAlert, Clock } from 'lucide-react';
 import { authService } from '../services/auth';
+import { securityService } from '../services/security';
 
 interface AdminLoginProps {
   onLoginSuccess: () => void;
@@ -15,13 +16,31 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Check brute force status on render
+  const bruteForceStatus = securityService.checkBruteForce('admin-panel');
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    // 1. Check brute force lockout
+    const bfCheck = securityService.checkBruteForce('admin-panel');
+    if (bfCheck.isLocked) {
+      const mins = Math.ceil(bfCheck.remainingSeconds / 60);
+      setError(`Akses admin sementara dikunci karena terlalu banyak percobaan gagal. Silakan coba lagi dalam ${mins} menit.`);
+      return;
+    }
+
+    // 2. Check rate limit
+    if (securityService.isRateLimited('admin-login-submit', 5, 30)) {
+      setError('Terlalu banyak permintaan cepat. Mohon tunggu 30 detik sebelum mencoba kembali.');
+      return;
+    }
+
     setIsLoading(true);
 
     setTimeout(() => {
-      const code = accessCode.trim();
+      const code = securityService.sanitizeText(accessCode.trim());
       let success = false;
 
       if (code.toLowerCase() === 'ax0895') {
@@ -33,9 +52,17 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({
       setIsLoading(false);
 
       if (success) {
+        securityService.resetBruteForce('admin-panel');
+        securityService.logSecurityEvent('SUCCESSFUL_LOGIN', 'admin-panel', 'Admin panel login successful', 'low');
         onLoginSuccess();
       } else {
-        setError('Kode otorisasi tidak valid.');
+        const failResult = securityService.recordFailedAttempt('admin-panel', 'Admin Panel Login', 5, 900);
+        if (failResult.isLocked) {
+          setError('Akses admin dikunci selama 15 menit karena 5 kali salah memasukkan kode otorisasi.');
+        } else {
+          const checkNow = securityService.checkBruteForce('admin-panel');
+          setError(`Kode otorisasi tidak valid. Sisa percobaan: ${checkNow.attemptsLeft} kali sebelum terkunci.`);
+        }
       }
     }, 400);
   };

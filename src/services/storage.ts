@@ -14,6 +14,7 @@ import {
   Announcement
 } from '../types';
 import { hashPassword } from './auth';
+import { securityService } from './security';
 import { COMPREHENSIVE_TEMPLATES } from '../data/templatesData';
 
 // Storage keys
@@ -781,6 +782,48 @@ export const db = {
 
     window.dispatchEvent(new CustomEvent('surat:chat-message-sent', { detail: msg }));
   },
+  deleteMessage(messageId: string): void {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.CHATS);
+      if (!raw) return;
+      let all: ChatMessage[] = JSON.parse(raw);
+      all = all.filter(m => m.id !== messageId);
+      localStorage.setItem(STORAGE_KEYS.CHATS, JSON.stringify(all));
+      window.dispatchEvent(new CustomEvent('surat:chat-updated'));
+    } catch {}
+  },
+  clearMessages(conversationId: string): void {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.CHATS);
+      if (!raw) return;
+      let all: ChatMessage[] = JSON.parse(raw);
+      all = all.filter(m => m.conversationId !== conversationId);
+      localStorage.setItem(STORAGE_KEYS.CHATS, JSON.stringify(all));
+
+      const convo = this.getConversationById(conversationId);
+      if (convo) {
+        convo.lastMessage = 'Riwayat obrolan telah dibersihkan oleh Administrator.';
+        convo.unreadAdminCount = 0;
+        convo.unreadUserCount = 0;
+        this.saveConversation(convo);
+      }
+      window.dispatchEvent(new CustomEvent('surat:chat-updated'));
+    } catch {}
+  },
+  updateConversationStatus(conversationId: string, status: string): void {
+    const convo = this.getConversationById(conversationId);
+    if (!convo) return;
+    convo.status = status;
+    this.saveConversation(convo);
+    window.dispatchEvent(new CustomEvent('surat:chat-updated'));
+  },
+  updateConversationNotes(conversationId: string, notes: string): void {
+    const convo = this.getConversationById(conversationId);
+    if (!convo) return;
+    convo.adminNotes = notes;
+    this.saveConversation(convo);
+    window.dispatchEvent(new CustomEvent('surat:chat-updated'));
+  },
   markConversationRead(conversationId: string, role: 'admin' | 'user'): void {
     const convo = this.getConversationById(conversationId);
     if (!convo) return;
@@ -793,7 +836,7 @@ export const db = {
   },
 
   // ==========================================
-  // BANNED USERS MANAGEMENT
+  // BANNED USERS MANAGEMENT (SECURE & RELIABLE)
   // ==========================================
   getBannedUsers(): BannedUser[] {
     try {
@@ -804,60 +847,196 @@ export const db = {
     }
   },
   banUser(banned: BannedUser): void {
+    const rawId = (banned.identifier || '').trim();
+    if (!rawId) return;
+    const cleanId = rawId.toLowerCase();
+
     const list = this.getBannedUsers();
-    const idx = list.findIndex(b => b.identifier.toLowerCase() === banned.identifier.toLowerCase());
+    const cleanBanned: BannedUser = {
+      ...banned,
+      identifier: cleanId,
+      name: banned.name?.trim() || banned.userName?.trim(),
+      reason: banned.reason?.trim() || 'Pelanggaran ketentuan sistem atau spamming.',
+      bannedAt: banned.bannedAt || new Date().toISOString(),
+      bannedBy: banned.bannedBy || 'Administrator SURAT'
+    };
+
+    const idx = list.findIndex(b => (b.identifier || '').trim().toLowerCase() === cleanId);
     if (idx >= 0) {
-      list[idx] = banned;
+      list[idx] = cleanBanned;
     } else {
-      list.unshift(banned);
+      list.unshift(cleanBanned);
     }
     localStorage.setItem(STORAGE_KEYS.BANNED_USERS, JSON.stringify(list));
 
-    // Also mark conversation as banned if exists
+    // Synchronize all matching conversations
     const convos = this.getConversations();
+    let convosUpdated = false;
     convos.forEach(c => {
-      if (
-        c.userEmail.toLowerCase() === banned.identifier.toLowerCase() ||
-        c.userId === banned.identifier ||
-        c.id === banned.identifier
-      ) {
+      const cEmail = (c.userEmail || '').trim().toLowerCase();
+      const cUserId = (c.userId || '').trim().toLowerCase();
+      const cName = (c.userName || '').trim().toLowerCase();
+      const cId = (c.id || '').trim().toLowerCase();
+
+      if (cEmail === cleanId || cUserId === cleanId || cName === cleanId || cId === cleanId) {
         c.isBanned = true;
-        c.bannedReason = banned.reason;
-        c.bannedAt = banned.bannedAt;
+        c.bannedReason = cleanBanned.reason;
+        c.bannedAt = cleanBanned.bannedAt;
+        convosUpdated = true;
       }
     });
-    localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(convos));
+    if (convosUpdated) {
+      localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(convos));
+    }
+
+    // Also mark customer account if registered
+    try {
+      const usersRaw = localStorage.getItem('surat_db_user_accounts');
+      if (usersRaw) {
+        const users = JSON.parse(usersRaw);
+        if (Array.isArray(users)) {
+          let userTouched = false;
+          users.forEach((u: any) => {
+            const uEmail = (u.email || '').trim().toLowerCase();
+            const uName = (u.username || '').trim().toLowerCase();
+            const uPhone = (u.phone || '').trim().toLowerCase();
+            const uId = (u.id || '').trim().toLowerCase();
+            if (uEmail === cleanId || uName === cleanId || uPhone === cleanId || uId === cleanId) {
+              u.isBanned = true;
+              u.bannedReason = cleanBanned.reason;
+              u.bannedAt = cleanBanned.bannedAt;
+              userTouched = true;
+            }
+          });
+          if (userTouched) {
+            localStorage.setItem('surat_db_user_accounts', JSON.stringify(users));
+          }
+        }
+      }
+    } catch {}
+
+    // Security Audit Log
+    securityService.logSecurityEvent({
+      eventType: 'USER_BANNED',
+      severity: 'high',
+      details: `Pengguna diblokir: "${cleanBanned.identifier}" (${cleanBanned.name || 'Tanpa Nama'}). Alasan: ${cleanBanned.reason}`,
+      target: cleanBanned.identifier
+    });
+
     window.dispatchEvent(new CustomEvent('surat:banned-updated'));
+    window.dispatchEvent(new CustomEvent('surat:chat-updated'));
   },
+
   unbanUser(identifier: string): void {
+    const rawId = (identifier || '').trim();
+    if (!rawId) return;
+    const cleanId = rawId.toLowerCase();
+
     const list = this.getBannedUsers().filter(
-      b => b.identifier.toLowerCase() !== identifier.toLowerCase()
+      b => (b.identifier || '').trim().toLowerCase() !== cleanId &&
+           (b.id || '').trim().toLowerCase() !== cleanId
     );
     localStorage.setItem(STORAGE_KEYS.BANNED_USERS, JSON.stringify(list));
 
-    // Unmark conversation
+    // Unmark all matching conversations
     const convos = this.getConversations();
+    let convosUpdated = false;
     convos.forEach(c => {
-      if (
-        c.userEmail.toLowerCase() === identifier.toLowerCase() ||
-        c.userId === identifier ||
-        c.id === identifier
-      ) {
+      const cEmail = (c.userEmail || '').trim().toLowerCase();
+      const cUserId = (c.userId || '').trim().toLowerCase();
+      const cName = (c.userName || '').trim().toLowerCase();
+      const cId = (c.id || '').trim().toLowerCase();
+
+      if (cEmail === cleanId || cUserId === cleanId || cName === cleanId || cId === cleanId) {
         c.isBanned = false;
         c.bannedReason = undefined;
         c.bannedAt = undefined;
+        convosUpdated = true;
       }
     });
-    localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(convos));
-    window.dispatchEvent(new CustomEvent('surat:banned-updated'));
-  },
-  isUserBanned(identifier: string): { isBanned: boolean; reason?: string } {
-    if (!identifier) return { isBanned: false };
-    const list = this.getBannedUsers();
-    const found = list.find(b => b.identifier.toLowerCase() === identifier.toLowerCase());
-    if (found) {
-      return { isBanned: true, reason: found.reason };
+    if (convosUpdated) {
+      localStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(convos));
     }
+
+    // Also unmark customer account if registered
+    try {
+      const usersRaw = localStorage.getItem('surat_db_user_accounts');
+      if (usersRaw) {
+        const users = JSON.parse(usersRaw);
+        if (Array.isArray(users)) {
+          let userTouched = false;
+          users.forEach((u: any) => {
+            const uEmail = (u.email || '').trim().toLowerCase();
+            const uName = (u.username || '').trim().toLowerCase();
+            const uPhone = (u.phone || '').trim().toLowerCase();
+            const uId = (u.id || '').trim().toLowerCase();
+            if (uEmail === cleanId || uName === cleanId || uPhone === cleanId || uId === cleanId) {
+              u.isBanned = false;
+              u.bannedReason = undefined;
+              u.bannedAt = undefined;
+              userTouched = true;
+            }
+          });
+          if (userTouched) {
+            localStorage.setItem('surat_db_user_accounts', JSON.stringify(users));
+          }
+        }
+      }
+    } catch {}
+
+    // Security Audit Log
+    securityService.logSecurityEvent({
+      eventType: 'USER_UNBANNED',
+      severity: 'medium',
+      details: `Pemblokiran dibuka (Unbanned): "${cleanId}". Akses live chat dan pesanan dipulihkan.`,
+      target: cleanId
+    });
+
+    window.dispatchEvent(new CustomEvent('surat:banned-updated'));
+    window.dispatchEvent(new CustomEvent('surat:chat-updated'));
+  },
+
+  isUserBanned(identifier?: string, additionalIdentifiers?: (string | undefined)[]): { isBanned: boolean; reason?: string; bannedAt?: string } {
+    if (!identifier && (!additionalIdentifiers || additionalIdentifiers.length === 0)) {
+      return { isBanned: false };
+    }
+
+    const list = this.getBannedUsers();
+    if (list.length === 0) return { isBanned: false };
+
+    const candidates: string[] = [];
+    if (identifier) candidates.push(identifier.trim().toLowerCase());
+    if (additionalIdentifiers) {
+      additionalIdentifiers.forEach(id => {
+        if (id && id.trim()) candidates.push(id.trim().toLowerCase());
+      });
+    }
+
+    // 1. Direct match in banned list
+    for (const cand of candidates) {
+      const found = list.find(b => {
+        const bId = (b.identifier || '').trim().toLowerCase();
+        const bName = (b.name || b.userName || '').trim().toLowerCase();
+        return bId === cand || (bName && bName === cand);
+      });
+      if (found) {
+        return { isBanned: true, reason: found.reason, bannedAt: found.bannedAt };
+      }
+    }
+
+    // 2. Check in conversations to see if marked banned
+    const convos = this.getConversations();
+    for (const cand of candidates) {
+      const convoMatch = convos.find(c => {
+        const cEmail = (c.userEmail || '').trim().toLowerCase();
+        const cUserId = (c.userId || '').trim().toLowerCase();
+        return (cEmail === cand || cUserId === cand) && c.isBanned;
+      });
+      if (convoMatch && convoMatch.isBanned) {
+        return { isBanned: true, reason: convoMatch.bannedReason || 'Akun dalam daftar pemblokiran.', bannedAt: convoMatch.bannedAt };
+      }
+    }
+
     return { isBanned: false };
   },
 

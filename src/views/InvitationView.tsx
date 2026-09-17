@@ -18,7 +18,9 @@ import {
   School,
   Ticket,
   Music2,
-  Users
+  Users,
+  ShieldCheck,
+  AlertCircle
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Order, RSVPItem } from '../types';
@@ -27,6 +29,7 @@ import { ShareModal } from '../components/ShareModal';
 import { backgroundAudio } from '../services/audioPlayer';
 import { parseEventDateTime, calculateCountdown, formatIndoDate } from '../utils/dateUtils';
 import { safeCopyToClipboard } from '../utils/clipboard';
+import { securityService } from '../services/security';
 
 interface InvitationViewProps {
   order: Order;
@@ -45,12 +48,16 @@ export const InvitationView: React.FC<InvitationViewProps> = ({
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [audioFeedback, setAudioFeedback] = useState<string | null>(null);
 
+  // Sanitize guest param to prevent XSS injection via URL parameters
+  const sanitizedGuestParam = securityService.sanitizeText(guestNameParam || '');
+
   // RSVP Form state
-  const [rsvpName, setRsvpName] = useState(guestNameParam || '');
+  const [rsvpName, setRsvpName] = useState(sanitizedGuestParam);
   const [rsvpStatus, setRsvpStatus] = useState<'attending' | 'not_attending' | 'uncertain'>('attending');
   const [rsvpCount, setRsvpCount] = useState(1);
   const [rsvpWishes, setRsvpWishes] = useState('');
   const [rsvpSubmitted, setRsvpSubmitted] = useState(false);
+  const [rsvpError, setRsvpError] = useState<string | null>(null);
   const [rsvps, setRsvps] = useState<RSVPItem[]>([]);
 
   const d = order?.invitationData || ({} as any);
@@ -84,7 +91,7 @@ export const InvitationView: React.FC<InvitationViewProps> = ({
   });
 
   // Guest Name logic
-  const displayedGuest = guestNameParam.trim() ? guestNameParam.trim() : 'Tamu Undangan Terhormat';
+  const displayedGuest = sanitizedGuestParam.trim() ? sanitizedGuestParam.trim() : 'Tamu Undangan Terhormat';
 
   // Load RSVPs
   useEffect(() => {
@@ -138,15 +145,43 @@ export const InvitationView: React.FC<InvitationViewProps> = ({
 
   const handleRSVPSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!rsvpName.trim()) return;
+    setRsvpError(null);
+
+    const rawName = rsvpName.trim();
+    if (!rawName) return;
+
+    // 1. Check if user is banned
+    const banCheck = db.isUserBanned(rawName);
+    if (banCheck.isBanned) {
+      setRsvpError('Akses pengiriman formulir diblokir karena identitas Anda terdaftar dalam daftar pemblokiran sistem.');
+      securityService.logSecurityEvent('UNAUTHORIZED_ACCESS_ATTEMPT', rawName, 'Banned user attempted RSVP submission', 'medium');
+      return;
+    }
+
+    // 2. Check rate limit
+    if (securityService.isRateLimited(`rsvp-${order.slug}`, 4, 45)) {
+      setRsvpError('Terlalu banyak konfirmasi dalam waktu singkat. Mohon tunggu 45 detik demi keamanan server.');
+      return;
+    }
+
+    // 3. Detect and block XSS injections
+    if (securityService.containsXSS(rawName) || securityService.containsXSS(rsvpWishes)) {
+      securityService.logSecurityEvent('XSS_ATTEMPT_BLOCKED', rawName, `Blocked XSS payload in RSVP on invitation /${order.slug}`, 'high');
+      setRsvpError('Karakter tidak diizinkan terdeteksi demi keamanan sistem.');
+      return;
+    }
+
+    // 4. Sanitize data
+    const cleanName = securityService.sanitizeText(rawName);
+    const cleanWishes = securityService.sanitizeText(rsvpWishes.trim());
 
     const newRsvp: RSVPItem = {
       id: 'rsvp-' + Date.now(),
       invitationSlug: order.slug,
-      guestName: rsvpName.trim(),
+      guestName: cleanName,
       status: rsvpStatus,
       guestCount: Number(rsvpCount),
-      wishes: rsvpWishes.trim(),
+      wishes: cleanWishes,
       createdAt: new Date().toISOString()
     };
 
@@ -956,6 +991,13 @@ export const InvitationView: React.FC<InvitationViewProps> = ({
           </div>
 
           <form onSubmit={handleRSVPSubmit} className="bg-stone-50 border border-stone-200 rounded-2xl p-6 space-y-4">
+            {rsvpError && (
+              <div className="p-3 bg-rose-100 border border-rose-300 text-rose-800 rounded-xl text-xs font-semibold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{rsvpError}</span>
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1">
                 Nama Lengkap
@@ -1057,8 +1099,12 @@ export const InvitationView: React.FC<InvitationViewProps> = ({
         </section>
 
         {/* FOOTER OF INVITATION */}
-        <footer className="p-8 text-center text-xs text-stone-400 space-y-2 bg-stone-950 text-stone-300">
+        <footer className="p-8 text-center text-xs text-stone-400 space-y-2.5 bg-stone-950 text-stone-300">
           <p>Terima kasih atas perhatian dan kehadiran Anda.</p>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-stone-900 border border-stone-800 text-[10px] text-emerald-400 font-medium">
+            <ShieldCheck className="w-3 h-3 text-emerald-400" />
+            <span>Tautan Undangan Terverifikasi & Terenkripsi SURAT Shield</span>
+          </div>
           <p className="text-[11px] text-stone-500">
             Dibuat secara profesional melalui <strong className="text-amber-400">SURAT</strong> • Platform Undangan Digital No. 1
           </p>

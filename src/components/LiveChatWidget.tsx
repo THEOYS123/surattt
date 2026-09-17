@@ -13,12 +13,17 @@ import {
   Info,
   Sparkles,
   RefreshCw,
-  ExternalLink
+  ExternalLink,
+  Lock,
+  LogIn,
+  UserPlus,
+  ShieldCheck
 } from 'lucide-react';
-import { ChatMessage, ChatConversation } from '../types';
+import { ChatMessage, ChatConversation, UserAccount } from '../types';
 import { db } from '../services/storage';
 import { customerAuth } from '../services/customerAuth';
 import { telegramService } from '../services/telegramService';
+import { securityService } from '../services/security';
 
 interface LiveChatWidgetProps {
   currentOrderId?: string;
@@ -26,6 +31,7 @@ interface LiveChatWidgetProps {
 
 export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => customerAuth.getCurrentUser());
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
   const [conversation, setConversation] = useState<ChatConversation | null>(null);
@@ -41,27 +47,27 @@ export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }
   const [isNudging, setIsNudging] = useState(false);
   const [showNudgeWarningModal, setShowNudgeWarningModal] = useState(false);
 
-  // User details form if not logged in
-  const [hasStarted, setHasStarted] = useState(false);
-
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Load user session on mount
+  // Sync current user session
   useEffect(() => {
-    const user = customerAuth.getCurrentUser();
-    if (user) {
-      setUserEmail(user.email);
-      setUserName(user.name);
-      setHasStarted(true);
-    } else {
-      const savedEmail = localStorage.getItem('surat_guest_chat_email') || '';
-      const savedName = localStorage.getItem('surat_guest_chat_name') || '';
-      if (savedEmail && savedName) {
-        setUserEmail(savedEmail);
-        setUserName(savedName);
-        setHasStarted(true);
+    const handleAuthChange = () => {
+      const user = customerAuth.getCurrentUser();
+      setCurrentUser(user);
+      if (user) {
+        setUserEmail(user.email);
+        setUserName(user.name || user.username);
+      } else {
+        setUserEmail('');
+        setUserName('');
+        setConversation(null);
+        setMessages([]);
       }
-    }
+    };
+
+    handleAuthChange();
+    window.addEventListener('surat:auth-changed', handleAuthChange);
+    return () => window.removeEventListener('surat:auth-changed', handleAuthChange);
   }, []);
 
   // Cooldown timer
@@ -74,23 +80,32 @@ export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }
 
   // Sync conversation & messages
   const refreshChat = () => {
-    if (!userEmail) return;
+    const user = currentUser || customerAuth.getCurrentUser();
+    if (!user || !user.email) {
+      setIsBanned(false);
+      return;
+    }
 
-    // Check ban status
-    const banCheck = db.isUserBanned(userEmail);
+    const email = user.email.trim().toLowerCase();
+    const name = (user.name || user.username || 'Pelanggan').trim();
+
+    // Check ban status thoroughly
+    const banCheck = db.isUserBanned(email, [user.username, user.phone, user.id]);
     if (banCheck.isBanned) {
       setIsBanned(true);
-      setBanReason(banCheck.reason || 'Pelanggaran ketentuan atau spam.');
+      setBanReason(banCheck.reason || 'Pelanggaran ketentuan sistem atau spamming.');
     } else {
       setIsBanned(false);
     }
 
-    let convo = db.getConversationByEmail(userEmail);
-    if (!convo && hasStarted && userName) {
+    let convo = db.getConversationByEmail(email);
+    if (!convo) {
       convo = {
         id: 'conv-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-        userName: userName,
-        userEmail: userEmail,
+        userId: user.id,
+        userName: name,
+        userEmail: email,
+        userPhone: user.phone,
         orderId: currentOrderId,
         status: 'open',
         lastMessage: 'Memulai percakapan dengan Customer Service.',
@@ -101,6 +116,17 @@ export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }
         createdAt: new Date().toISOString()
       };
       db.saveConversation(convo);
+
+      // Initial greeting from Admin
+      const welcomeMsg: ChatMessage = {
+        id: 'msg-welcome-' + Date.now(),
+        conversationId: convo.id,
+        senderRole: 'admin',
+        senderName: 'Customer Support SURAT',
+        text: `Halo kak ${name}! 👋 Selamat datang di Live Support SURAT. Ada yang bisa kami bantu seputar pesanan atau undangan kakak?`,
+        timestamp: new Date().toISOString()
+      };
+      db.sendMessage(welcomeMsg);
     }
 
     if (convo) {
@@ -127,7 +153,7 @@ export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }
       window.removeEventListener('surat:chat-message-sent', handleUpdate);
       window.removeEventListener('surat:banned-updated', handleUpdate);
     };
-  }, [userEmail, hasStarted, isOpen]);
+  }, [currentUser, isOpen]);
 
   // Auto scroll
   useEffect(() => {
@@ -136,62 +162,21 @@ export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }
     }
   }, [messages, isOpen]);
 
-  const handleStartChat = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!userName.trim() || !userEmail.trim()) return;
-
-    localStorage.setItem('surat_guest_chat_name', userName.trim());
-    localStorage.setItem('surat_guest_chat_email', userEmail.trim().toLowerCase());
-    setHasStarted(true);
-
-    const banCheck = db.isUserBanned(userEmail.trim().toLowerCase());
-    if (banCheck.isBanned) {
-      setIsBanned(true);
-      setBanReason(banCheck.reason || 'Pelanggaran ketentuan atau spam.');
-      return;
-    }
-
-    let convo = db.getConversationByEmail(userEmail.trim().toLowerCase());
-    if (!convo) {
-      convo = {
-        id: 'conv-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-        userName: userName.trim(),
-        userEmail: userEmail.trim().toLowerCase(),
-        orderId: currentOrderId,
-        status: 'open',
-        lastMessage: 'Halo, saya ingin bertanya seputar pembuatan undangan.',
-        lastMessageAt: new Date().toISOString(),
-        unreadAdminCount: 1,
-        unreadUserCount: 0,
-        nudgeCount: 0,
-        createdAt: new Date().toISOString()
-      };
-      db.saveConversation(convo);
-
-      // Initial welcome message
-      const welcomeMsg: ChatMessage = {
-        id: 'msg-welcome-' + Date.now(),
-        conversationId: convo.id,
-        senderRole: 'admin',
-        senderName: 'Customer Support SURAT',
-        text: `Halo kak ${userName}! 👋 Selamat datang di layanan Live Support SURAT. Ada yang bisa kami bantu seputar undangan atau verifikasi pesanan kakak?`,
-        timestamp: new Date().toISOString()
-      };
-      db.sendMessage(welcomeMsg);
-    }
-    setConversation(convo);
-  };
-
   const handleSendMessage = (textToSend?: string) => {
-    const text = (textToSend || inputMessage).trim();
-    if (!text || !conversation || isBanned) return;
+    const rawText = (textToSend || inputMessage).trim();
+    if (!rawText || !conversation || isBanned || !currentUser) return;
+
+    // Cyber Security: Sanitize user input to prevent XSS
+    const sanitized = securityService.sanitizeText(rawText);
+    if (!sanitized) return;
 
     const newMsg: ChatMessage = {
       id: 'msg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       conversationId: conversation.id,
       senderRole: 'user',
-      senderName: userName || 'Pelanggan',
-      text: text,
+      senderId: currentUser.id || currentUser.email,
+      senderName: currentUser.name || currentUser.username || userName || 'Pelanggan',
+      text: sanitized,
       timestamp: new Date().toISOString()
     };
 
@@ -200,7 +185,7 @@ export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }
   };
 
   const handleConfirmNudge = async () => {
-    if (!conversation || isBanned || nudgeCooldown > 0) return;
+    if (!conversation || isBanned || nudgeCooldown > 0 || !currentUser) return;
 
     setIsNudging(true);
     setShowNudgeWarningModal(false);
@@ -211,7 +196,8 @@ export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }
       id: 'nudge-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       conversationId: conversation.id,
       senderRole: 'user',
-      senderName: userName || 'Pelanggan',
+      senderId: currentUser.id || currentUser.email,
+      senderName: currentUser.name || currentUser.username || 'Pelanggan',
       text: nudgeMsgText,
       timestamp: new Date().toISOString(),
       isNudge: true
@@ -222,8 +208,8 @@ export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }
     // Send high-priority alert to admin Telegram Bot
     try {
       await telegramService.notifyChatNudge(
-        userName,
-        userEmail,
+        currentUser.name || currentUser.username,
+        currentUser.email,
         conversation.lastMessage || nudgeMsgText,
         currentOrderId
       );
@@ -330,51 +316,51 @@ export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }
           )}
 
           {/* MAIN CHAT BODY */}
-          {!hasStarted ? (
-            /* First time entry form */
-            <form onSubmit={handleStartChat} className="flex-1 p-5 flex flex-col justify-center space-y-4 bg-stone-50">
-              <div className="text-center space-y-1.5">
-                <div className="w-12 h-12 bg-amber-100 text-amber-800 rounded-full flex items-center justify-center mx-auto mb-2 shadow-inner">
-                  <Sparkles className="w-6 h-6 text-amber-600" />
-                </div>
-                <h4 className="text-sm font-bold text-stone-900">Mulai Percakapan</h4>
-                <p className="text-xs text-stone-500 max-w-xs mx-auto">
-                  Isi nama & kontak Anda agar admin kami dapat melayani dan memverifikasi pesanan Anda dengan cepat.
+          {!currentUser ? (
+            /* Login required gateway */
+            <div className="flex-1 p-6 flex flex-col items-center justify-center text-center space-y-4 bg-stone-50">
+              <div className="w-14 h-14 bg-amber-100/90 text-amber-800 rounded-2xl flex items-center justify-center mx-auto shadow-inner border border-amber-200">
+                <Lock className="w-7 h-7 text-amber-700" />
+              </div>
+              <div className="space-y-1.5 max-w-xs">
+                <h4 className="text-sm font-bold text-stone-900">Masuk untuk Mengobrol</h4>
+                <p className="text-xs text-stone-500 leading-relaxed">
+                  Untuk keamanan dan verifikasi pesanan, fitur Live Chat dengan Admin hanya dapat diakses oleh pelanggan yang telah masuk (login).
                 </p>
               </div>
 
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-stone-700 mb-1">Nama Lengkap *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Contoh: Rian Anggara"
-                    value={userName}
-                    onChange={(e) => setUserName(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl text-xs focus:ring-1 focus:ring-amber-500 focus:outline-hidden"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-stone-700 mb-1">Email / No. WhatsApp *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="nama@email.com / 08123456789"
-                    value={userEmail}
-                    onChange={(e) => setUserEmail(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-stone-300 rounded-xl text-xs focus:ring-1 focus:ring-amber-500 focus:outline-hidden"
-                  />
-                </div>
+              <div className="w-full max-w-xs space-y-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('surat:open-auth-modal', {
+                      detail: { tab: 'login', message: 'Silakan masuk ke akun Anda untuk mulai mengobrol dengan Admin.' }
+                    }));
+                  }}
+                  className="w-full py-2.5 px-4 bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <LogIn className="w-4 h-4 text-amber-400" />
+                  <span>Masuk ke Akun Saya</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('surat:open-auth-modal', {
+                      detail: { tab: 'register', message: 'Daftar akun gratis untuk menghubungi Admin.' }
+                    }));
+                  }}
+                  className="w-full py-2.5 px-4 bg-white hover:bg-stone-100 text-stone-700 font-bold text-xs rounded-xl border border-stone-300 transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <UserPlus className="w-4 h-4 text-stone-500" />
+                  <span>Daftar Akun Baru (Gratis)</span>
+                </button>
               </div>
 
-              <button
-                type="submit"
-                className="w-full py-2.5 bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer"
-              >
-                Mulai Chat Sekarang
-              </button>
-            </form>
+              <div className="pt-2 flex items-center justify-center gap-1.5 text-[11px] text-stone-400">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Enkripsi & Perlindungan Siber Aktif</span>
+              </div>
+            </div>
           ) : (
             /* Messages list */
             <div className="flex-1 p-3.5 overflow-y-auto space-y-3 bg-stone-50/50">
@@ -427,7 +413,7 @@ export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }
           )}
 
           {/* QUICK SUGGESTIONS & NUDGE ADMIN BUTTON */}
-          {hasStarted && !isBanned && (
+          {currentUser && !isBanned && (
             <div className="p-2.5 bg-stone-100/90 border-t border-stone-200 space-y-2">
               {/* Quick Prompt Chips */}
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-[11px]">
@@ -479,7 +465,7 @@ export const LiveChatWidget: React.FC<LiveChatWidgetProps> = ({ currentOrderId }
           )}
 
           {/* INPUT BAR */}
-          {hasStarted && !isBanned && (
+          {currentUser && !isBanned && (
             <div className="p-3 bg-white border-t border-stone-200 flex items-center gap-2">
               <input
                 type="text"

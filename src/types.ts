@@ -233,6 +233,13 @@ export interface InvitationData {
   graduationDegree?: string;
   graduationFaculty?: string;
   alumniGeneration?: string;
+
+  // Cyber Security & Privacy Protection
+  isPasswordProtected?: boolean;
+  accessPin?: string;
+  hideBankDetailsUntilUnlocked?: boolean;
+  disableRsvpForm?: boolean;
+  maxRsvpPerGuest?: number;
 }
 
 export interface FaqItem {
@@ -329,10 +336,11 @@ export interface ChatMessage {
   conversationId: string;
   senderId?: string; // user email/id or admin email/id
   senderName: string;
-  senderRole: 'user' | 'admin';
+  senderRole: 'user' | 'admin' | 'system';
   text: string;
   timestamp: string;
   isNudge?: boolean;
+  isSystemAlert?: boolean;
 }
 
 export interface ChatConversation {
@@ -347,7 +355,8 @@ export interface ChatConversation {
   lastMessageAt: string;
   unreadAdminCount: number;
   unreadUserCount: number;
-  status?: string;
+  status?: 'open' | 'resolved' | 'pending' | 'archived' | string;
+  adminNotes?: string;
   isBanned?: boolean;
   bannedReason?: string;
   bannedAt?: string;
@@ -381,3 +390,41 @@ export interface Announcement {
   createdAt: string;
   expiresAt?: string;
 }
+
+// Cyber Security & Audit Log Types
+export interface SecurityAuditLog {
+  id: string;
+  eventType: 
+    | 'XSS_ATTEMPT_BLOCKED'
+    | 'BRUTE_FORCE_LOCKOUT'
+    | 'FAILED_LOGIN'
+    | 'SUCCESSFUL_LOGIN'
+    | 'USER_BANNED'
+    | 'USER_UNBANNED'
+    | 'BOT_HONEYPOT_TRIGGERED'
+    | 'RATE_LIMIT_EXCEEDED'
+    | 'STORAGE_TAMPER_DETECTED'
+    | 'UNAUTHORIZED_ACCESS_ATTEMPT'
+    | 'SUSPICIOUS_PAYLOAD_SANITIZED'
+    | 'INVITATION_PIN_SUCCESS'
+    | 'INVITATION_PIN_FAILED'
+    | 'SETTINGS_CHANGED';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  details: string;
+  sourceIp?: string;
+  target?: string;
+  timestamp: string;
+}
+
+export interface SecurityScanResult {
+  score: number;
+  grade: 'A+' | 'A' | 'B' | 'C' | 'F';
+  lastScannedAt: string;
+  checks: {
+    name: string;
+    description: string;
+    passed: boolean;
+    severity: 'low' | 'medium' | 'high' | 'critical';
+  }[];
+}
+

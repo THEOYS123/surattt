@@ -1,6 +1,7 @@
 import { UserAccount, UserActivityLog, Order } from '../types';
 import { hashPassword } from './auth';
 import { db } from './storage';
+import { securityService } from './security';
 
 const STORAGE_KEYS = {
   USERS: 'surat_customer_users',
@@ -139,6 +140,21 @@ class CustomerAuthService {
       return { success: false, message: 'Password minimal terdiri dari 6 karakter.' };
     }
 
+    // Security Check: Banned User Firewall
+    const banCheck = db.isUserBanned(cleanEmail, [cleanUsername, cleanPhone]);
+    if (banCheck.isBanned) {
+      securityService.logSecurityEvent({
+        eventType: 'UNAUTHORIZED_ACCESS_ATTEMPT',
+        severity: 'high',
+        details: `Upaya pendaftaran akun baru oleh identitas terblokir: ${cleanEmail} / ${cleanUsername}.`,
+        target: cleanEmail
+      });
+      return {
+        success: false,
+        message: `⛔ Pendaftaran Ditolak: Kontak atau email ini berada dalam daftar pemblokiran sistem.`
+      };
+    }
+
     const users = this.getUsers();
 
     // Check if email already registered
@@ -208,6 +224,15 @@ class CustomerAuthService {
       return { success: false, message: 'Silakan isi email/nama pengguna dan password Anda.' };
     }
 
+    // Cyber Security: Anti-Brute-Force Guard
+    const bruteCheck = securityService.checkBruteForce(`cust_login_${cleanId}`, 5, 900);
+    if (bruteCheck.isLocked) {
+      return {
+        success: false,
+        message: `⛔ Akses Terkunci Sementara: Terlalu banyak percobaan gagal. Silakan tunggu ${Math.ceil(bruteCheck.remainingSeconds / 60)} menit lagi demi keamanan akun Anda.`
+      };
+    }
+
     const users = this.getUsers();
     const userIndex = users.findIndex(
       u => (u.email && u.email.toLowerCase() === cleanId) || 
@@ -215,10 +240,27 @@ class CustomerAuthService {
     );
 
     if (userIndex === -1) {
+      securityService.recordFailedAttempt(`cust_login_${cleanId}`, 'Customer Login', 5, 900);
       return { success: false, message: 'Akun dengan email atau nama pengguna tersebut tidak ditemukan.' };
     }
 
     const user = users[userIndex];
+
+    // Cyber Security: Check if user is Banned
+    const banCheck = db.isUserBanned(user.email, [user.username, user.phone, user.id]);
+    if (banCheck.isBanned) {
+      securityService.logSecurityEvent({
+        eventType: 'UNAUTHORIZED_ACCESS_ATTEMPT',
+        severity: 'high',
+        details: `Upaya login dari akun terblokir: ${user.email} (${user.username}). Alasan blokir: ${banCheck.reason}`,
+        target: user.email
+      });
+      return {
+        success: false,
+        message: `⛔ AKUN DIBLOKIR: Akun Anda telah dinonaktifkan oleh Administrator. Alasan: "${banCheck.reason || 'Pelanggaran ketentuan sistem'}". Silakan hubungi admin.`
+      };
+    }
+
     const expectedHash = hashPassword(cleanPass);
     const storedHash = typeof user.passwordHash === 'string' ? user.passwordHash : '';
 
@@ -229,8 +271,30 @@ class CustomerAuthService {
     const isPasswordValid = storedHash === expectedHash || storedHash === cleanPass || isCorrupted;
 
     if (!isPasswordValid) {
+      const lockResult = securityService.recordFailedAttempt(`cust_login_${cleanId}`, 'Customer Login', 5, 900);
+      securityService.logSecurityEvent({
+        eventType: 'FAILED_LOGIN',
+        severity: 'medium',
+        details: `Gagal login untuk akun ${cleanId}: Password tidak sesuai.`,
+        target: cleanId
+      });
+      if (lockResult.isLocked) {
+        return {
+          success: false,
+          message: `⛔ Akun Terkunci: Anda salah memasukkan password 5 kali berturut-turut. Akun dikunci sementara selama 15 menit.`
+        };
+      }
       return { success: false, message: 'Password yang Anda masukkan salah. Silakan periksa kembali.' };
     }
+
+    // Success: Reset brute-force counter
+    securityService.resetAttempts(`cust_login_${cleanId}`);
+    securityService.logSecurityEvent({
+      eventType: 'SUCCESSFUL_LOGIN',
+      severity: 'low',
+      details: `Login berhasil: ${user.email} (${user.username}).`,
+      target: user.email
+    });
 
     // Auto-heal passwordHash to modern standard
     user.passwordHash = expectedHash;

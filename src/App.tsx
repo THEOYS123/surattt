@@ -72,10 +72,19 @@ export default function App() {
       }
     };
 
+    const handleOpenAuth = (e: Event) => {
+      const customEvt = e as CustomEvent<{ tab?: 'login' | 'register'; message?: string }>;
+      const tab = customEvt.detail?.tab || 'login';
+      const message = customEvt.detail?.message;
+      setAuthModal({ isOpen: true, tab, message });
+    };
+
     window.addEventListener('surat:auth-changed', handleAuthEvent);
+    window.addEventListener('surat:open-auth-modal', handleOpenAuth);
     window.addEventListener('storage', handleStorage);
     return () => {
       window.removeEventListener('surat:auth-changed', handleAuthEvent);
+      window.removeEventListener('surat:open-auth-modal', handleOpenAuth);
       window.removeEventListener('storage', handleStorage);
     };
   }, []);
